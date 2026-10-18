@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+*.spec
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# App runtime / sensitive data — NEVER commit customer databases or exports
+*.sql
+*.sql.gz
+*.dump
+exports/
+*.csv
+*.json.bak
+connections.json
+*.sqlite
+*.db
+logs/
+*.log
+
+# Local schema templates (the panel software's own base .sql + local manifest).
+# Kept local; only derived name-only signatures are committed under xdbtool/data/.
+/templates/*
+!templates/README.md
+
+# Allow sample/fixture files explicitly
+!tests/fixtures/*.sql
+!examples/*.json
+# Committed derived signatures (names only, no SQL)
+!xdbtool/data/panel_signatures.json

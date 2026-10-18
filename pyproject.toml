@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xui-db-tool"
+version = "0.1.0"
+description = "GUI tool to inspect, back up, repair and migrate XUI / Xtream-UI / StreamCreed panel databases."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "diogoncarneiro" }]
+keywords = ["xui", "xtream-ui", "streamcreed", "iptv", "mysql", "migration", "backup"]
+dependencies = [
+    "PySide6>=6.7,<6.9",
+    "PyMySQL>=1.1.0",
+    "sqlparse>=0.5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/diogoncarneiro/xui-db-tool"
+Issues = "https://github.com/diogoncarneiro/xui-db-tool/issues"
+
+[project.scripts]
+xui-db-tool = "xdbtool.__main__:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6", "pyinstaller>=6.6"]
+
+[tool.setuptools.packages.find]
+include = ["xdbtool*"]
+
+[tool.setuptools.package-data]
+xdbtool = ["data/*.json"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

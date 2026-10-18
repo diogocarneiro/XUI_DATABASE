@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# Development / packaging
+pytest>=8.0
+ruff>=0.6
+pyinstaller>=6.6

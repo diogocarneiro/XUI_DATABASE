@@ -39,8 +39,8 @@ MySQL/MariaDB connection or from an offline `mysqldump` `.sql` file.
 Requires **Python 3.10+**.
 
 ```bash
-git clone https://github.com/diogoncarneiro/xui-db-tool.git
-cd xui-db-tool
+git clone https://github.com/diogocarneiro/XUI_DATABASE.git
+cd XUI_DATABASE
 python -m venv .venv
 # Windows:  .venv\Scripts\activate
 # Linux/Mac: source .venv/bin/activate

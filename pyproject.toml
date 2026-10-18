@@ -18,8 +18,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/diogoncarneiro/xui-db-tool"
-Issues = "https://github.com/diogoncarneiro/xui-db-tool/issues"
+Homepage = "https://github.com/diogocarneiro/XUI_DATABASE"
+Issues = "https://github.com/diogocarneiro/XUI_DATABASE/issues"
 
 [project.scripts]
 xui-db-tool = "xdbtool.__main__:main"

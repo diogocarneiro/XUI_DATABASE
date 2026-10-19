@@ -163,6 +163,29 @@ Then open the XUI panel → **Database Migration** → **Migrate Database**. If 
 own MySQL user cannot read `xui_migrate`, add `--grant user@localhost` (the user is
 in XUI's `config.ini`). The same steps are in the GUI under **XUI Migration**.
 
+### XUI.one → XUI.one — import a backup into another XUI server
+
+XUI's migration page refuses XUI backups ("Can't migrate from XUI to XUI"), and
+restoring a backup from another version or fork as-is would replace the target's
+schema. `xui-import` instead works over SSH against the live `xui` database:
+
+- copies only the tables/columns both sides have (fork-only ones are listed and skipped);
+- **keeps the target's `servers`, `settings` and `access_codes`** (its IP, settings
+  and admin URL) unless `--include-system`; skips logs unless `--include-logs`;
+- `--servers main` (default) moves every stream to the target's main server;
+  `--servers import` adds the backup's load balancers as extra servers instead;
+- takes a `mysqldump` of the current `xui` to `/root/xui-before-import-*.sql.gz`
+  first, and replaces the data inside one transaction.
+
+```bash
+python -m xdbtool xui-import backup.sql --ssh-host 192.168.1.106 --ssh-password secret --plan-only
+python -m xdbtool xui-import backup.sql --ssh-host 192.168.1.106 --ssh-password secret
+```
+
+Admin/reseller accounts (`users`) come from the backup, so log in with the old
+panel's admin credentials afterwards. Restart XUI on the server so it reloads its
+caches. The same is in the GUI **XUI Migration** tab (*Import an XUI.one backup*).
+
 ## Project layout
 
 ```
@@ -178,6 +201,7 @@ xdbtool/
     restore.py      # execute a .sql dump on a live server
     xui_migrate.py  # stage an old panel dump as `xui_migrate` for XUI.one
     ssh_remote.py   # SSH/SFTP helper: run the server's mysql client remotely
+    xui_import.py   # XUI.one → XUI.one import (schema-aware, keeps system tables)
     config.py       # connection profiles (user config dir)
   gui/            # PySide6 interface
   __main__.py     # CLI + GUI entry point

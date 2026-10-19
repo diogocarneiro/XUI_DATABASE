@@ -128,8 +128,8 @@ class SshSession:
         self._cnf = self.temp_path(".cnf")
         self.write_text(self._cnf, _mysql_cnf(user, password))
 
-    def mysql_cmd(self, *args: str) -> str:
-        parts = ["mysql"]
+    def mysql_cmd(self, *args: str, program: str = "mysql") -> str:
+        parts = [program]
         if self._cnf:
             parts.append(f"--defaults-extra-file={shlex.quote(self._cnf)}")
         return " ".join(parts + [shlex.quote(a) for a in args])

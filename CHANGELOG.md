@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 ### Added
+- **XUI.one → XUI.one import** (`xui-import` CLI, GUI section in **XUI
+  Migration**): imports an XUI.one backup into another server's live `xui` over
+  SSH. Reads the target schema and copies only shared tables/columns; keeps the
+  target's servers/settings/access codes; skips logs; moves streams to the
+  target's main server or adds the old load balancers; backs up `xui` with
+  `mysqldump` first and replaces data in one transaction. Offline `--sql-out`
+  with a template as the target schema. New `core/xui_import.py`.
 - **XUI.one migration staging**: `xui-migrate` CLI command and an **XUI
   Migration** GUI tab load an old Xtream UI / ZapX / StreamCreed / Xtream Codes v2
   dump into the `xui_migrate` database, ready for XUI's *Database Migration*

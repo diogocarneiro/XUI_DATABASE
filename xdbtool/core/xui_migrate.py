@@ -142,7 +142,7 @@ def prepare_dump(text: str, *, skip_logs: bool = True, force: bool = False) -> P
         problems.append(
             f"This is an XUI.one backup (has {', '.join(xui_hits)}), not an Xtream UI / ZapX "
             "/ StreamCreed / XC v2 dump - XUI will answer \"Can't migrate from XUI to XUI\". "
-            "Restore it with XUI's own Backups page or `restore` into the `xui` database."
+            "Use 'Import XUI.one backup' (CLI: xui-import) to bring it into XUI instead."
         )
     missing = [t for t in REQUIRED_TABLES if t not in present]
     if missing:

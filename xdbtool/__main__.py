@@ -248,6 +248,59 @@ def cmd_xui_migrate(args) -> int:
     return 0
 
 
+def cmd_xui_import(args) -> int:
+    from .core.dump_source import SqlDumpSource
+    from .core.source import SourceError
+    from .core.ssh_remote import SshConfig, SshError
+    from .core.xui_import import XuiImportError, build_import, import_via_ssh, write_import_script
+
+    try:
+        if args.sql_out:
+            from .core.templates import list_templates
+
+            meta = next((m for m in list_templates() if m.key == args.template), None)
+            if meta is None:
+                print("--sql-out needs --template <key> (see `templates`) as the target schema.",
+                      file=sys.stderr)
+                return 2
+            with SqlDumpSource(meta.sql_path()) as tmpl:
+                schema = {t: [c.name for c in tmpl.table_info(t).columns]
+                          for t in tmpl.list_tables()}
+            with SqlDumpSource(args.dump_file) as src:
+                imp = build_import(src, schema, include_system=args.include_system,
+                                   include_logs=args.include_logs, server_mode=args.servers)
+                print("\n".join(imp.summary_lines()))
+                out = write_import_script(src, imp, args.sql_out, database=args.database)
+            run = (f"gunzip -c {out.name} | mysql -u root -p" if out.suffix == ".gz"
+                   else f"mysql -u root -p < {out.name}")
+            print(f"Wrote {out}. Back up `{args.database}` first, then on the server run:  {run}")
+            return 0
+        if not args.ssh_host:
+            print("--ssh-host is required (or use --sql-out with --template).", file=sys.stderr)
+            return 2
+        ssh = SshConfig(host=args.ssh_host, port=args.ssh_port, user=args.ssh_user,
+                        password=args.ssh_password, key_file=args.ssh_key or "")
+        result = import_via_ssh(
+            ssh, args.dump_file, mysql_user=args.mysql_user, mysql_password=args.mysql_password,
+            database=args.database, include_system=args.include_system,
+            include_logs=args.include_logs, server_mode=args.servers,
+            backup=not args.no_backup, plan_only=args.plan_only,
+            progress=_cli_progress, message=print,
+        )
+    except (XuiImportError, SshError, SourceError) as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        return 2
+    if args.plan_only:
+        return 0
+    print(file=sys.stderr)
+    if result["backup"]:
+        print(f"Previous `{args.database}` saved on the server: {result['backup']}")
+    for table, n in result["row_counts"].items():
+        print(f"  {table:18} {n:>8} rows")
+    print("Done. Restart XUI on the server so it reloads its caches.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="xui-db-tool", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -325,15 +378,7 @@ def build_parser() -> argparse.ArgumentParser:
                     "server, ready for XUI's own 'Database Migration' page.",
     )
     px.add_argument("dump_file", help="Old panel dump (.sql or .sql.gz)")
-    px.add_argument("--ssh-host",
-                    help="XUI server SSH host (recommended: runs mysql on the server)")
-    px.add_argument("--ssh-port", type=int, default=22)
-    px.add_argument("--ssh-user", default="root")
-    px.add_argument("--ssh-password", default="", help="SSH password (or use --ssh-key/agent)")
-    px.add_argument("--ssh-key", help="Private key file for SSH")
-    px.add_argument("--mysql-user", default="",
-                    help="With --ssh-host: MySQL user on the server (blank = root via socket)")
-    px.add_argument("--mysql-password", default="")
+    _add_ssh_args(px)
     px.add_argument("--target-host", help="Direct MySQL host (only if it accepts remote logins)")
     px.add_argument("--target-port", type=int, default=3306)
     px.add_argument("--target-user", default="root")
@@ -349,7 +394,40 @@ def build_parser() -> argparse.ArgumentParser:
     px.add_argument("--sql-out", help="Write a script to run on the server instead of loading")
     px.add_argument("--check-only", action="store_true", help="Analyse the dump and stop")
     px.set_defaults(func=cmd_xui_migrate)
+
+    pxi = sub.add_parser(
+        "xui-import",
+        help="Import an XUI.one backup into another XUI.one server's `xui` database",
+        description="XUI-to-XUI import over SSH: copies the tables/columns both sides share, "
+                    "keeps the target's system tables, backs up `xui` first.",
+    )
+    pxi.add_argument("dump_file", help="XUI.one backup (.sql or .sql.gz)")
+    _add_ssh_args(pxi)
+    pxi.add_argument("--database", default="xui", help="Target XUI database (default: xui)")
+    pxi.add_argument("--servers", choices=["main", "import"], default="main",
+                     help="main: move all streams to the target's main server (default); "
+                          "import: add the backup's load balancers as extra servers")
+    pxi.add_argument("--include-system", action="store_true",
+                     help="Also replace servers/settings/access_codes (changes admin URL!)")
+    pxi.add_argument("--include-logs", action="store_true", help="Also import log/stat tables")
+    pxi.add_argument("--no-backup", action="store_true",
+                     help="Skip the mysqldump of the current `xui` on the server")
+    pxi.add_argument("--plan-only", action="store_true", help="Show what would be imported")
+    pxi.add_argument("--sql-out", help="Offline: write the import SQL (needs --template)")
+    pxi.add_argument("--template", help="Template key used as target schema with --sql-out")
+    pxi.set_defaults(func=cmd_xui_import)
     return p
+
+
+def _add_ssh_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--ssh-host", help="XUI server SSH host (runs mysql on the server)")
+    p.add_argument("--ssh-port", type=int, default=22)
+    p.add_argument("--ssh-user", default="root")
+    p.add_argument("--ssh-password", default="", help="SSH password (or use --ssh-key/agent)")
+    p.add_argument("--ssh-key", help="Private key file for SSH")
+    p.add_argument("--mysql-user", default="",
+                   help="With --ssh-host: MySQL user on the server (blank = root via socket)")
+    p.add_argument("--mysql-password", default="")
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core import profiles, templates, xui_migrate
+from ..core import profiles, templates, xui_import, xui_migrate
 from ..core.config import ConnectionProfile, load_store, save_store
 from ..core.dump_source import SqlDumpSource
 from ..core.exporter import ExportOptions, export_tables
@@ -583,6 +583,26 @@ class MainWindow(QMainWindow):
         form.addRow(check_btn)
         form.addRow(load_btn)
         form.addRow(script_btn)
+
+        form.addRow(QLabel("<b>Import an XUI.one backup → this XUI</b> (XUI to XUI, over SSH)"))
+        self.xi_servers = QComboBox()
+        self.xi_servers.addItem("Move all streams to this XUI's main server", "main")
+        self.xi_servers.addItem("Add the backup's load balancers as extra servers", "import")
+        self.xi_backup = QCheckBox("Back up the current `xui` database on the server first")
+        self.xi_backup.setChecked(True)
+        self.xi_logs = QCheckBox("Also import logs / statistics")
+        self.xi_system = QCheckBox("Also replace servers / settings / access codes "
+                                   "(changes the admin URL!)")
+        form.addRow("Streams:", self.xi_servers)
+        form.addRow("", self.xi_backup)
+        form.addRow("", self.xi_logs)
+        form.addRow("", self.xi_system)
+        preview_btn = QPushButton("Preview XUI import")
+        preview_btn.clicked.connect(lambda: self._do_xui_import(plan_only=True))
+        import_btn = QPushButton("Import backup into `xui` on server")
+        import_btn.clicked.connect(lambda: self._do_xui_import(plan_only=False))
+        form.addRow(preview_btn)
+        form.addRow(import_btn)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(w)
@@ -691,6 +711,58 @@ class MainWindow(QMainWindow):
             return result
 
         self._start(job, done_msg=f"`{db}` is ready for XUI's migration page.")
+
+    def _do_xui_import(self, plan_only: bool) -> None:
+        if self.runner.busy:
+            QMessageBox.information(self, "Busy", "Another operation is still running.")
+            return
+        dump = self.x_dump.text().strip()
+        if not dump:
+            QMessageBox.warning(self, "No dump", "Select the XUI.one backup (.sql).")
+            return
+        ssh_cfg = SshConfig(
+            host=self.x_ssh_host.text().strip(), port=self.x_ssh_port.value(),
+            user=self.x_ssh_user.text().strip(), password=self.x_ssh_pass.text(),
+            key_file=self.x_ssh_key.text().strip(),
+        )
+        if self.x_mode.currentData() != "ssh" or not ssh_cfg.host:
+            QMessageBox.warning(self, "SSH needed",
+                                "XUI import runs over SSH: choose SSH and enter the SSH host.")
+            return
+        backup = self.xi_backup.isChecked()
+        system = self.xi_system.isChecked()
+        if not plan_only:
+            warn = "" if backup else "\n\nNo backup of the current `xui` will be taken!"
+            if system:
+                warn += ("\n\nServers, settings and access codes will be REPLACED: the admin "
+                         "URL and server IPs will be the backup's.")
+            if QMessageBox.question(
+                self, "Confirm XUI import",
+                f"Replace the data of the live `xui` database on {ssh_cfg.host} with "
+                f"'{Path(dump).name}'?{warn}",
+            ) != QMessageBox.Yes:
+                return
+        opts = dict(
+            mysql_user=self.x_user.text().strip(), mysql_password=self.x_pass.text(),
+            include_system=system, include_logs=self.xi_logs.isChecked(),
+            server_mode=self.xi_servers.currentData(), backup=backup, plan_only=plan_only,
+        )
+
+        def job(progress, message):
+            message(f"Reading {Path(dump).name} and the target schema…")
+            result = xui_import.import_via_ssh(ssh_cfg, dump, progress=progress,
+                                               message=message, **opts)
+            if plan_only:
+                return result
+            if result["backup"]:
+                message(f"Previous `xui` saved on the server: {result['backup']}")
+            for table, n in result["row_counts"].items():
+                message(f"  {table}: {n} rows")
+            message("Restart XUI on the server so it reloads its caches.")
+            return result
+
+        self._start(job, done_msg="Preview ready (see log)." if plan_only
+                    else "XUI backup imported.")
 
     def _build_progress_box(self) -> QWidget:
         box = QWidget()

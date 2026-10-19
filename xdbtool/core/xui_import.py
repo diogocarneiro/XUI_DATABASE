@@ -106,6 +106,48 @@ RowFilter = Callable[[Iterable[dict]], Iterator[dict]]
 SERVER_MODES = ("main", "import")
 
 
+@dataclass(frozen=True)
+class ContentGroup:
+    """A kind of panel content the user can choose to import (or leave untouched)."""
+
+    label: str
+    tables: frozenset[str] = frozenset()        # tables owned entirely by this group
+    stream_types: frozenset[int] = frozenset()  # `streams.type` values
+    category_type: str = ""                     # `streams_categories.category_type`
+    bouquet_column: str = ""                    # JSON id list in `bouquets`
+
+
+# XUI.one keeps every stream kind in `streams`, told apart by `type` (see the
+# `streams_types` table): 1 live, 2 movie, 3 created live, 4 radio, 5 series episode.
+CONTENT_GROUPS: dict[str, ContentGroup] = {
+    "live": ContentGroup("Live channels", frozenset({"recordings"}), frozenset({1, 3}),
+                         "live", "bouquet_channels"),
+    "movies": ContentGroup("Movies", stream_types=frozenset({2}), category_type="movie",
+                           bouquet_column="bouquet_movies"),
+    "series": ContentGroup("Series", frozenset({"streams_series", "streams_episodes"}),
+                           frozenset({5}), "series", "bouquet_series"),
+    "radio": ContentGroup("Radio stations", stream_types=frozenset({4}), category_type="radio",
+                          bouquet_column="bouquet_radios"),
+    "bouquets": ContentGroup("Bouquets", frozenset({"bouquets"})),
+    "lines": ContentGroup("Lines, MAG & Enigma2 devices", frozenset({
+        "lines", "mag_devices", "enigma2_devices", "mag_claims", "enigma2_actions"})),
+    "resellers": ContentGroup("Admins, resellers, groups & packages", frozenset({
+        "users", "users_groups", "users_packages", "users_credits_logs", "tickets",
+        "tickets_replies"})),
+    "epg": ContentGroup("EPG", frozenset({
+        "epg", "epg_channels", "epg_data", "epg_api", "epg_languages"})),
+    "security": ContentGroup("Blocked IPs/ISPs/ASNs/UAs, RTMP IPs, API keys", frozenset({
+        "blocked_asns", "blocked_ips", "blocked_isps", "blocked_uas", "rtmp_ips",
+        "hmac_keys"})),
+    "other": ContentGroup("Everything else (providers, profiles, watch folders...)"),
+}
+STREAM_GROUPS = ("live", "movies", "series", "radio")
+# Tables shared by all stream kinds; partially replaced when only some are chosen.
+STREAM_TABLES = ("streams", "streams_servers", "streams_options", "streams_categories")
+# Per-stream child tables whose own id nothing else references.
+_STREAM_CHILDREN = {"streams_servers": "server_stream_id", "streams_options": "id"}
+
+
 @dataclass
 class ImportPlan:
     plan: MigrationPlan
@@ -115,14 +157,26 @@ class ImportPlan:
     append_only: set[str] = field(default_factory=set)       # add rows, do not DELETE first
     row_filters: dict[str, RowFilter] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    content: list[str] = field(default_factory=list)         # chosen CONTENT_GROUPS keys
+    not_chosen: list[str] = field(default_factory=list)      # tables left as on the target
+    delete_sql: dict[str, str] = field(default_factory=dict)  # partial DELETE per table
+    # (table, id column, SQL condition selecting the target rows that are kept, ids
+    # the import will insert) — checked against the live target before importing.
+    keep_checks: list[tuple[str, str, str, set]] = field(default_factory=list)
 
     def summary_lines(self) -> list[str]:
-        lines = [f"Tables to replace: {len(self.plan.transferable)}"]
+        labels = ", ".join(CONTENT_GROUPS[g].label for g in self.content)
+        lines = [f"Content: {labels or 'nothing'}",
+                 f"Tables to replace: {len(self.plan.transferable)}"]
         for m in self.plan.transferable:
             extra = f", {len(m.source_only)} backup-only cols dropped" if m.source_only else ""
             how = " (added to the target's rows)" if m.table in self.append_only else ""
+            if m.table in self.delete_sql:
+                how = " (only the chosen kinds are replaced)"
             lines.append(f"  {m.table}: {self.rows.get(m.table, 0)} rows{extra}{how}")
         lines.extend(self.notes)
+        if self.not_chosen:
+            lines.append(f"Not chosen, left as they are: {', '.join(self.not_chosen)}")
         if self.kept_target:
             lines.append(f"Kept from the target (system): {', '.join(self.kept_target)}")
         if self.skipped_logs:
@@ -161,6 +215,79 @@ def _move_to_main(main_id: int) -> tuple[RowFilter, RowFilter]:
     return streams_servers, streams
 
 
+def _chain(first: RowFilter | None, then: RowFilter) -> RowFilter:
+    return then if first is None else (lambda rows: then(first(rows)))
+
+
+def _group_of(table: str) -> str:
+    for key, group in CONTENT_GROUPS.items():
+        if table in group.tables:
+            return key
+    return "other"
+
+
+def _apply_content(imp: ImportPlan, source: DataSource, chosen: set[str]) -> None:
+    """Restrict the stream tables to the chosen stream kinds (partial replace)."""
+    src_names = {t.lower(): t for t in source.list_tables()}
+    groups = [CONTENT_GROUPS[g] for g in STREAM_GROUPS if g in chosen]
+    types = sorted({t for g in groups for t in g.stream_types})
+    cats = sorted({g.category_type for g in groups})
+    type_list = ", ".join(str(t) for t in types)
+    cat_list = ", ".join(_sql_literal(c) for c in cats)
+
+    def keep_type(rows):
+        return (r for r in rows if _int(r.get("type")) in types)
+
+    ids = set()
+    if "streams" in src_names:
+        ids = {r.get("id") for r in keep_type(source.iter_rows(src_names["streams"]))}
+
+    def by_stream(rows):
+        return (r for r in rows if r.get("stream_id") in ids)
+
+    names = {m.table.lower(): m for m in imp.plan.transferable}
+    if "streams" in names:
+        imp.row_filters["streams"] = _chain(keep_type, imp.row_filters.get("streams") or
+                                            (lambda rows: rows))
+        imp.delete_sql["streams"] = f"DELETE FROM `streams` WHERE `type` IN ({type_list})"
+        imp.keep_checks.append(("streams", "id", f"`type` NOT IN ({type_list})", ids))
+    for child, own_id in _STREAM_CHILDREN.items():
+        m = names.get(child)
+        if not m:
+            continue
+        imp.row_filters[child] = _chain(by_stream, imp.row_filters.get(child) or
+                                        (lambda rows: rows))
+        imp.delete_sql[m.table] = (
+            f"DELETE x FROM {_quote_ident(m.table)} x JOIN `streams` s ON s.`id` = x.`stream_id` "
+            f"WHERE s.`type` IN ({type_list})"
+        )
+        # Let AUTO_INCREMENT number the new rows so they cannot clash with kept ones.
+        m.columns = [c for c in m.columns if c.lower() != own_id]
+    m = names.get("streams_categories")
+    if m:
+        cat_ids = {r.get("id") for r in source.iter_rows(src_names["streams_categories"])
+                   if r.get("category_type") in cats}
+        imp.row_filters["streams_categories"] = (
+            lambda rows: (r for r in rows if r.get("category_type") in cats))
+        imp.delete_sql[m.table] = (
+            f"DELETE FROM {_quote_ident(m.table)} WHERE `category_type` IN ({cat_list})")
+        imp.keep_checks.append((m.table, "id", f"`category_type` NOT IN ({cat_list})", cat_ids))
+
+
+def _int(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _bouquet_filter(cleared: list[str]) -> RowFilter:
+    def run(rows):
+        for r in rows:
+            yield {**r, **{c: "[]" for c in cleared if c in r}}
+    return run
+
+
 def build_import(
     source: DataSource,
     target_schema: dict[str, list[str]],
@@ -170,6 +297,7 @@ def build_import(
     server_mode: str = "main",
     target_main_id: int = 1,
     target_server_ids: Iterable[int] = (1,),
+    content: Iterable[str] | None = None,
 ) -> ImportPlan:
     """Map the backup onto the target schema, honouring the system/log exclusions.
 
@@ -177,7 +305,18 @@ def build_import(
     the backup's rows; the others keep the target's. Importing ``servers`` replaces
     the whole server list, so streams keep their original servers and
     ``server_mode`` is ignored.
+
+    ``content`` picks which :data:`CONTENT_GROUPS` to import (default: all). Tables
+    of groups not chosen are left exactly as they are on the target. Choosing only
+    some stream kinds (e.g. movies) replaces just those rows of ``streams`` and its
+    child tables, keeping the target's other streams.
     """
+    groups = set(CONTENT_GROUPS) if content is None else {g.lower() for g in content}
+    bad = groups - set(CONTENT_GROUPS)
+    if bad:
+        raise ValueError(f"Unknown content {sorted(bad)}; choose from {list(CONTENT_GROUPS)}")
+    stream_chosen = [g for g in STREAM_GROUPS if g in groups]
+    partial_streams = 0 < len(stream_chosen) < len(STREAM_GROUPS)
     check_source(source)
     if "lines" not in {t.lower() for t in target_schema}:
         raise XuiImportError("The target database has no `lines` table — is it XUI.one?")
@@ -187,13 +326,20 @@ def build_import(
     unknown = chosen - set(OPTIONAL_SYSTEM_TABLES)
     if unknown:
         raise ValueError(f"Only {OPTIONAL_SYSTEM_TABLES} can be chosen, not {sorted(unknown)}")
-    kept, logs, wanted = [], [], []
+    in_target = {t.lower() for t in target_schema}
+    kept, logs, wanted, not_chosen = [], [], [], []
     for t in source.list_tables():
         low = t.lower()
-        if low in SYSTEM_TABLES and low not in chosen:
+        if low not in in_target:
+            wanted.append(t)  # reported by build_plan as "not in target"
+        elif low in SYSTEM_TABLES and low not in chosen:
             kept.append(t)
         elif low in LOG_TABLES and not include_logs:
             logs.append(t)
+        elif low in SYSTEM_TABLES:
+            wanted.append(t)
+        elif (not stream_chosen) if low in STREAM_TABLES else (_group_of(low) not in groups):
+            not_chosen.append(t)
         else:
             wanted.append(t)
     src_names = {t.lower(): t for t in source.list_tables()}
@@ -202,7 +348,8 @@ def build_import(
         wanted.append(src_names["servers"])
         kept.remove(src_names["servers"])
     plan = build_plan(source, SchemaSource(target_schema), wanted)
-    imp = ImportPlan(plan=plan, kept_target=kept, skipped_logs=logs)
+    imp = ImportPlan(plan=plan, kept_target=kept, skipped_logs=logs, not_chosen=not_chosen,
+                     content=[g for g in CONTENT_GROUPS if g in groups])
 
     if servers_imported:
         imp.notes.append("Servers replaced by the backup's (old server IPs; fix the main "
@@ -224,6 +371,19 @@ def build_import(
         imp.row_filters["servers"] = lambda rows: (r for r in rows if not r.get("is_main"))
         names = ", ".join(str(r.get("server_name") or r.get("id")) for r in extra)
         imp.notes.append(f"Load balancers added as extra servers (reinstall them): {names}")
+
+    if partial_streams:
+        _apply_content(imp, source, set(stream_chosen))
+    if "bouquets" in groups and len(stream_chosen) < len(STREAM_GROUPS):
+        cleared = [CONTENT_GROUPS[g].bouquet_column for g in STREAM_GROUPS
+                   if g not in stream_chosen]
+        imp.row_filters["bouquets"] = _bouquet_filter(cleared)
+        imp.notes.append(f"Bouquets imported without {', '.join(cleared)} (content not chosen).")
+    if "lines" in groups and "bouquets" not in groups:
+        imp.notes.append("Note: lines keep the backup's bouquet ids; import bouquets too unless "
+                         "this XUI has the same bouquets.")
+    if "lines" in groups and "resellers" not in groups:
+        imp.notes.append("Note: lines keep their backup owner (member_id) and package ids.")
 
     for m in plan.transferable:
         f = imp.row_filters.get(m.table.lower())
@@ -300,10 +460,14 @@ def write_import_script(
         fh.write(f"USE {_quote_ident(database)};\n")
         for s in (*SESSION_PREAMBLE, "SET FOREIGN_KEY_CHECKS = 0", "START TRANSACTION"):
             fh.write(s + ";\n")
+        # Delete phase first: partial child DELETEs join `streams`, so they must run
+        # before `streams` itself loses the rows they match on.
+        deletes = [imp.delete_sql.get(m.table, f"DELETE FROM {_quote_ident(m.table)}")
+                   for m in imp.plan.transferable if m.table not in imp.append_only]
+        for stmt in sorted(deletes, key=lambda s: " JOIN " not in s):
+            fh.write(stmt + ";\n")
         for m in imp.plan.transferable:
             table, total = _quote_ident(m.table), imp.rows.get(m.table, 0)
-            if m.table not in imp.append_only:
-                fh.write(f"DELETE FROM {table};\n")
             collist = ", ".join(_quote_ident(c) for c in m.columns)
             batch: list[str] = []
             done = 0
@@ -358,6 +522,7 @@ def import_via_ssh(
     mysql_password: str = "",
     database: str = XUI_DB,
     import_tables: Iterable[str] = (),
+    content: Iterable[str] | None = None,
     include_logs: bool = False,
     server_mode: str = "main",
     backup: bool = True,
@@ -394,9 +559,11 @@ def import_via_ssh(
             main_id = next((int(r[0]) for r in servers if r[1] == "1"), ids[0] if ids else 1)
             imp = build_import(source, schema, import_tables=import_tables,
                                include_logs=include_logs, server_mode=server_mode,
-                               target_main_id=main_id, target_server_ids=ids or [main_id])
+                               target_main_id=main_id, target_server_ids=ids or [main_id],
+                               content=content)
             for line in imp.summary_lines():
                 say(line)
+            _check_kept_rows(ssh, database, imp)
             rescue = RescueAccess.generate() if create_rescue else None
             if rescue and not {"access_codes", "users", "users_groups"} <= set(schema):
                 raise XuiImportError("Target lacks access_codes/users/users_groups; "
@@ -460,6 +627,23 @@ def import_via_ssh(
             ]
     log.info("Imported %s into %s on %s", Path(dump_path).name, database, ssh_config.host)
     return result
+
+
+def _check_kept_rows(ssh, database: str, imp: ImportPlan) -> None:
+    """Refuse a partial import whose ids collide with target rows that are kept."""
+    for table, id_col, kept_where, incoming in imp.keep_checks:
+        if not incoming:
+            continue
+        rows = ssh.mysql_query(f"SELECT {_quote_ident(id_col)} FROM {_quote_ident(database)}."
+                               f"{_quote_ident(table)} WHERE {kept_where}")
+        clash = sorted(i for i in {_int(r[0]) for r in rows} & {_int(i) for i in incoming}
+                       if i is not None)
+        if clash:
+            shown = ", ".join(str(i) for i in clash[:10]) + (" ..." if len(clash) > 10 else "")
+            raise XuiImportError(
+                f"{len(clash)} id(s) in `{table}` ({shown}) are used on this XUI by content "
+                "you are keeping. Import those kinds too, or remove them from this XUI first."
+            )
 
 
 def report_lines(result: dict) -> list[str]:

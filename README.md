@@ -173,6 +173,13 @@ schema. `xui-import` instead works over SSH against the live `xui` database:
 - **keeps the target's `servers`, `settings` and `access_codes`** (its IP, settings
   and admin URL) — bring any of them over individually with `--import-access-codes`,
   `--import-settings`, `--import-servers`; skips logs unless `--include-logs`;
+- **choose what to restore** with `--content` (default: everything): `live`,
+  `movies`, `series`, `radio`, `bouquets`, `lines`, `resellers`, `epg`, `security`,
+  `other`. Content not chosen is left exactly as it is. Picking only some stream
+  kinds replaces just those rows (`streams.type`, their categories, server links
+  and options) and keeps the target's other streams — ids that would collide with
+  kept rows are detected before anything changes. Bouquets imported without some
+  stream kinds get those lists emptied;
 - creates a **rescue access** at the end (new admin access code + `rescue_xxxx`
   admin user with a random password, hashed as SHA-512 crypt like XUI does) and
   prints every access code's panel URL; runs XUI's `/home/xui/tools access` so
@@ -185,6 +192,9 @@ schema. `xui-import` instead works over SSH against the live `xui` database:
 ```bash
 python -m xdbtool xui-import backup.sql --ssh-host 192.168.1.106 --ssh-password secret --plan-only
 python -m xdbtool xui-import backup.sql --ssh-host 192.168.1.106 --ssh-password secret
+# only movies and series, leaving channels, lines, bouquets… untouched
+python -m xdbtool xui-import backup.sql --ssh-host 192.168.1.106 --ssh-password secret \
+    --content movies,series
 ```
 
 Admin/reseller accounts (`users`) come from the backup, so log in with the old

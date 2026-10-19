@@ -10,9 +10,11 @@ from collections import Counter
 
 import pytest
 
+from xdbtool.__main__ import main
 from xdbtool.core.dump_source import SqlDumpSource
 from xdbtool.core.passwords import sha512_crypt
 from xdbtool.core.xui_import import (
+    STREAM_TABLES,
     RescueAccess,
     XuiImportError,
     build_import,
@@ -260,3 +262,137 @@ def test_rescue_sql_targets_admin_group_and_hashes_password():
 ])
 def test_sha512_crypt_spec_vectors(password, salt, rounds, expected):
     assert sha512_crypt(password, salt, rounds) == expected
+
+
+CONTENT_BACKUP = """\
+CREATE TABLE `lines` (
+  `id` int(11) NOT NULL,
+  `username` varchar(255),
+  `bouquet` text
+);
+INSERT INTO `lines` VALUES (1,'alice','[1]');
+CREATE TABLE `streams` (
+  `id` int(11) NOT NULL,
+  `type` int(11),
+  `stream_display_name` text
+);
+INSERT INTO `streams` VALUES (1,1,'RTP1'),(2,2,'Movie A'),(3,2,'Movie B'),(4,5,'S01E01');
+CREATE TABLE `streams_servers` (
+  `server_stream_id` int(11) NOT NULL,
+  `stream_id` int(11),
+  `server_id` int(11),
+  `parent_id` int(11)
+);
+INSERT INTO `streams_servers` VALUES (10,1,1,NULL),(11,2,1,NULL),(12,3,1,NULL),(13,4,1,NULL);
+CREATE TABLE `streams_categories` (
+  `id` int(11) NOT NULL,
+  `category_type` varchar(255),
+  `category_name` varchar(255)
+);
+INSERT INTO `streams_categories` VALUES (1,'live','News'),(2,'movie','Action'),(3,'series','Drama');
+CREATE TABLE `streams_series` (
+  `id` int(11) NOT NULL,
+  `title` varchar(255)
+);
+INSERT INTO `streams_series` VALUES (1,'Show');
+CREATE TABLE `bouquets` (
+  `id` int(11) NOT NULL,
+  `bouquet_name` varchar(255),
+  `bouquet_channels` text,
+  `bouquet_movies` text,
+  `bouquet_series` text,
+  `bouquet_radios` text
+);
+INSERT INTO `bouquets` VALUES (1,'PT','[1]','[2,3]','[1]','[]');
+"""
+
+CONTENT_TARGET = {
+    "lines": ["id", "username", "bouquet"],
+    "streams": ["id", "type", "stream_display_name"],
+    "streams_servers": ["server_stream_id", "stream_id", "server_id", "parent_id"],
+    "streams_categories": ["id", "category_type", "category_name"],
+    "streams_series": ["id", "title"],
+    "bouquets": ["id", "bouquet_name", "bouquet_channels", "bouquet_movies",
+                 "bouquet_series", "bouquet_radios"],
+}
+
+
+@pytest.fixture
+def content_backup(tmp_path):
+    path = tmp_path / "content.sql"
+    path.write_text(CONTENT_BACKUP, encoding="utf-8")
+    with SqlDumpSource(path) as src:
+        yield src
+
+
+def test_movies_only_replaces_just_the_movies(content_backup, tmp_path):
+    imp = build_import(content_backup, CONTENT_TARGET, content=["movies"])
+    tables = {m.table for m in imp.plan.transferable}
+    assert tables == {"streams", "streams_servers", "streams_categories"}
+    assert {"lines", "bouquets", "streams_series"} <= set(imp.not_chosen)
+    text, script = _script(content_backup, imp, tmp_path)
+    deletes = [line for line in text.splitlines() if line.startswith("DELETE")]
+    assert deletes == [
+        "DELETE x FROM `streams_servers` x JOIN `streams` s ON s.`id` = x.`stream_id` "
+        "WHERE s.`type` IN (2);",
+        "DELETE FROM `streams` WHERE `type` IN (2);",
+        "DELETE FROM `streams_categories` WHERE `category_type` IN ('movie');",
+    ]
+    assert "server_stream_id" not in text       # child ids left to AUTO_INCREMENT
+    with script:
+        assert [r["id"] for r in script.iter_rows("streams")] == [2, 3]
+        assert [r["stream_id"] for r in script.iter_rows("streams_servers")] == [2, 3]
+        assert [r["category_name"] for r in script.iter_rows("streams_categories")] == ["Action"]
+    assert ("streams", "id", "`type` NOT IN (2)", {2, 3}) in imp.keep_checks
+
+
+def test_live_with_bouquets_clears_other_bouquet_lists(content_backup, tmp_path):
+    imp = build_import(content_backup, CONTENT_TARGET, content=["live", "bouquets"])
+    _, script = _script(content_backup, imp, tmp_path)
+    with script:
+        b = next(script.iter_rows("bouquets"))
+        assert b["bouquet_channels"] == "[1]"
+        assert b["bouquet_movies"] == b["bouquet_series"] == "[]"
+        assert [r["type"] for r in script.iter_rows("streams")] == [1]
+
+
+def test_series_brings_series_tables_and_episodes(content_backup):
+    imp = build_import(content_backup, CONTENT_TARGET, content=["series"])
+    assert {m.table for m in imp.plan.transferable} >= {"streams", "streams_series"}
+    assert imp.rows["streams"] == 1 and imp.rows["streams_categories"] == 1
+
+
+def test_no_stream_kind_leaves_all_stream_tables(content_backup):
+    imp = build_import(content_backup, CONTENT_TARGET, content=["lines"])
+    assert {m.table for m in imp.plan.transferable} == {"lines"}
+    assert set(STREAM_TABLES) & set(CONTENT_TARGET) <= set(imp.not_chosen)
+    assert any("bouquet ids" in n for n in imp.notes)
+
+
+def test_all_content_is_a_full_replace(content_backup):
+    imp = build_import(content_backup, CONTENT_TARGET)
+    assert imp.delete_sql == {} and imp.keep_checks == []
+
+
+def test_unknown_content_rejected(content_backup):
+    with pytest.raises(ValueError, match="films"):
+        build_import(content_backup, CONTENT_TARGET, content=["films"])
+
+
+def test_kept_rows_clash_is_refused(content_backup):
+    from xdbtool.core.xui_import import _check_kept_rows
+
+    imp = build_import(content_backup, CONTENT_TARGET, content=["movies"])
+
+    class Target:
+        def mysql_query(self, sql):
+            return [["3"], ["99"]] if "`type` NOT IN (2)" in sql else []
+
+    with pytest.raises(XuiImportError, match=r"`streams` \(3\)"):
+        _check_kept_rows(Target(), "xui", imp)
+
+
+def test_cli_rejects_unknown_content(capsys):
+    with pytest.raises(SystemExit):
+        main(["xui-import", "x.sql", "--content", "movies,films"])
+    assert "films" in capsys.readouterr().err

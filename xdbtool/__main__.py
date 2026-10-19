@@ -277,7 +277,7 @@ def cmd_xui_import(args) -> int:
                 schema = {t: [c.name for c in tmpl.table_info(t).columns]
                           for t in tmpl.list_tables()}
             with SqlDumpSource(args.dump_file) as src:
-                imp = build_import(src, schema, import_tables=chosen,
+                imp = build_import(src, schema, import_tables=chosen, content=args.content,
                                    include_logs=args.include_logs, server_mode=args.servers)
                 print("\n".join(imp.summary_lines()))
                 rescue = None if args.no_rescue else RescueAccess.generate()
@@ -297,7 +297,7 @@ def cmd_xui_import(args) -> int:
                         password=args.ssh_password, key_file=args.ssh_key or "")
         result = import_via_ssh(
             ssh, args.dump_file, mysql_user=args.mysql_user, mysql_password=args.mysql_password,
-            database=args.database, import_tables=chosen,
+            database=args.database, import_tables=chosen, content=args.content,
             include_logs=args.include_logs, server_mode=args.servers,
             backup=not args.no_backup, create_rescue=not args.no_rescue,
             refresh_codes=not args.no_refresh_codes, plan_only=args.plan_only,
@@ -420,6 +420,12 @@ def build_parser() -> argparse.ArgumentParser:
     pxi.add_argument("--servers", choices=["main", "import"], default="main",
                      help="main: move all streams to the target's main server (default); "
                           "import: add the backup's load balancers as extra servers")
+    pxi.add_argument(
+        "--content", type=_content_list, metavar="KINDS",
+        help="Comma-separated content to import (default: all): live, movies, series, radio, "
+             "bouquets, lines, resellers, epg, security, other. Content not listed is left "
+             "as it is on the target; e.g. --content movies replaces only the movies.",
+    )
     pxi.add_argument("--import-access-codes", action="store_true",
                      help="Replace access codes with the backup's (old admin/reseller URLs)")
     pxi.add_argument("--import-settings", action="store_true",
@@ -438,6 +444,17 @@ def build_parser() -> argparse.ArgumentParser:
     pxi.add_argument("--template", help="Template key used as target schema with --sql-out")
     pxi.set_defaults(func=cmd_xui_import)
     return p
+
+
+def _content_list(value: str) -> list[str]:
+    from .core.xui_import import CONTENT_GROUPS
+
+    kinds = [v.strip().lower() for v in value.split(",") if v.strip()]
+    bad = [k for k in kinds if k not in CONTENT_GROUPS]
+    if bad or not kinds:
+        raise argparse.ArgumentTypeError(
+            f"unknown content {bad}; choose from {', '.join(CONTENT_GROUPS)}")
+    return kinds
 
 
 def _add_ssh_args(p: argparse.ArgumentParser) -> None:

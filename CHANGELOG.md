@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format is based on
   target's main server or adds the old load balancers; backs up `xui` with
   `mysqldump` first and replaces data in one transaction. Offline `--sql-out`
   with a template as the target schema. New `core/xui_import.py`.
+- XUI import: **choose the content to restore** (`--content`, GUI checkboxes):
+  live channels, movies, series, radio, bouquets, lines/devices, resellers, EPG,
+  security lists, other. Partial stream kinds replace only their `streams.type`
+  rows, categories, server links and options; colliding ids with kept target
+  rows are refused before any change; bouquets drop lists of unchosen kinds.
 - XUI import: choose **access codes / settings / servers** individually; create a
   **rescue access** (admin access code + admin user, random password) in the same
   transaction; report all access-code URLs and the rescue login at the end; run

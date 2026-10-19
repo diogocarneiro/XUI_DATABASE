@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -585,6 +586,24 @@ class MainWindow(QMainWindow):
         form.addRow(script_btn)
 
         form.addRow(QLabel("<b>Import an XUI.one backup → this XUI</b> (XUI to XUI, over SSH)"))
+        content_box = QWidget()
+        grid = QGridLayout(content_box)
+        grid.setContentsMargins(0, 0, 0, 0)
+        self.xi_content: dict[str, QCheckBox] = {}
+        for i, (key, group) in enumerate(xui_import.CONTENT_GROUPS.items()):
+            box = QCheckBox(group.label)
+            box.setChecked(True)
+            self.xi_content[key] = box
+            grid.addWidget(box, i // 2, i % 2)
+        pick = QHBoxLayout()
+        for text, state in (("All", True), ("None", False)):
+            b = QPushButton(text)
+            b.clicked.connect(lambda _=False, s=state: [c.setChecked(s)
+                                                        for c in self.xi_content.values()])
+            pick.addWidget(b)
+        pick.addStretch(1)
+        form.addRow("Restore:", content_box)
+        form.addRow("", self._wrap(pick))
         self.xi_servers = QComboBox()
         self.xi_servers.addItem("Move all streams to this XUI's main server", "main")
         self.xi_servers.addItem("Add the backup's load balancers as extra servers", "import")
@@ -742,8 +761,15 @@ class MainWindow(QMainWindow):
                                    ("settings", self.xi_settings),
                                    ("servers", self.xi_srv)) if box.isChecked()]
         rescue = self.xi_rescue.isChecked()
+        content = [k for k, box in self.xi_content.items() if box.isChecked()]
+        if not content and not chosen:
+            QMessageBox.warning(self, "Nothing chosen", "Tick at least one kind of content.")
+            return
         if not plan_only:
             warn = "" if backup else "\n\nNo backup of the current `xui` will be taken!"
+            if len(content) < len(self.xi_content):
+                labels = ", ".join(xui_import.CONTENT_GROUPS[k].label for k in content)
+                warn += f"\n\nOnly this content is replaced: {labels or '(none)'}."
             if chosen:
                 warn += f"\n\nReplaced with the backup's: {', '.join(chosen)}."
             if "access_codes" in chosen and not rescue:
@@ -756,7 +782,7 @@ class MainWindow(QMainWindow):
                 return
         opts = dict(
             mysql_user=self.x_user.text().strip(), mysql_password=self.x_pass.text(),
-            import_tables=chosen, include_logs=self.xi_logs.isChecked(),
+            import_tables=chosen, content=content, include_logs=self.xi_logs.isChecked(),
             server_mode=self.xi_servers.currentData(), backup=backup,
             create_rescue=rescue, plan_only=plan_only,
         )

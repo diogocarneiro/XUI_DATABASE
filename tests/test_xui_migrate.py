@@ -176,3 +176,97 @@ def test_cli_check_only_and_script(tmp_path, capsys):
     bad = tmp_path / "xui.sql"
     bad.write_text(XUI_ONE_DUMP, encoding="utf-8")
     assert main(["xui-migrate", str(bad), "--check-only"]) == 2
+
+
+class FakeSsh:
+    """Stands in for SshSession: answers the remote mysql queries stage_via_ssh makes."""
+
+    last: FakeSsh | None = None
+    databases = ["xui", "xui_migrate"]
+    fail_script = False
+
+    def __init__(self, config):
+        self.config = config
+        self.commands: list[str] = []
+        self.uploaded: str | None = None
+        self.creds = None
+        FakeSsh.last = self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def set_mysql_credentials(self, user="", password=""):
+        self.creds = (user, password)
+
+    def temp_path(self, suffix):
+        return f"/tmp/xdbtool-test{suffix}"
+
+    def mysql_cmd(self, *args):
+        return "mysql " + " ".join(args)
+
+    def upload(self, local, remote, progress=None):
+        with gzip.open(local, "rt", encoding="utf-8") as fh:
+            self.uploaded = fh.read()
+
+    def run(self, command, check=True):
+        self.commands.append(command)
+        return (1, "", "ERROR 1064 at line 9") if FakeSsh.fail_script else (0, "", "")
+
+    def mysql_query(self, sql):
+        if sql == "SHOW DATABASES":
+            return [[d] for d in FakeSsh.databases]
+        if sql.startswith("SELECT TABLE_NAME"):
+            return [["users"], ["streams"], ["user_activity"]]
+        if "UNION ALL" in sql or "FROM `xui_migrate`" in sql:
+            return [["users", "2"], ["streams", "1"]]
+        return [["5"]]  # tables already in xui_migrate
+
+
+@pytest.fixture
+def fake_ssh(monkeypatch):
+    import xdbtool.core.ssh_remote as ssh_remote
+
+    FakeSsh.fail_script = False
+    monkeypatch.setattr(ssh_remote, "SshSession", FakeSsh)
+    return FakeSsh
+
+
+def test_stage_via_ssh(fake_ssh):
+    from xdbtool.core.ssh_remote import SshConfig
+    from xdbtool.core.xui_migrate import stage_via_ssh
+
+    result = stage_via_ssh(SshConfig(host="192.168.1.106"), prepare_dump(XC_DUMP),
+                           mysql_user="xuiuser", mysql_password="s3cret", drop_existing=True)
+    ssh = fake_ssh.last
+    assert ssh.creds == ("xuiuser", "s3cret")
+    assert "DROP DATABASE IF EXISTS `xui_migrate`;" in ssh.uploaded
+    assert ssh.commands == ["gunzip -c /tmp/xdbtool-test.sql.gz | mysql "]
+    assert not any("s3cret" in c for c in ssh.commands)   # password never on a command line
+    assert result["row_counts"] == {"users": 2, "streams": 1}
+    assert result["xui_server"] is True
+
+
+def test_stage_via_ssh_refuses_overwrite_and_reports_mysql_errors(fake_ssh):
+    from xdbtool.core.ssh_remote import SshConfig
+    from xdbtool.core.xui_migrate import stage_via_ssh
+
+    with pytest.raises(XuiMigrateError, match="already exists"):
+        stage_via_ssh(SshConfig(host="h"), prepare_dump(XC_DUMP))
+    fake_ssh.fail_script = True
+    with pytest.raises(XuiMigrateError, match="1064"):
+        stage_via_ssh(SshConfig(host="h"), prepare_dump(XC_DUMP), drop_existing=True)
+
+
+def test_mysql_cnf_escapes_password():
+    from xdbtool.core.ssh_remote import _mysql_cnf
+
+    assert _mysql_cnf("u", r'a"b\c') == '[client]\nuser="u"\n' + r'password="a\"b\\c"' + "\n"
+
+
+def test_write_script_gzip(tmp_path):
+    out = write_script(prepare_dump(XC_DUMP), tmp_path / "x.sql.gz")
+    with gzip.open(out, "rt", encoding="utf-8") as fh:
+        assert "USE `xui_migrate`;" in fh.read()

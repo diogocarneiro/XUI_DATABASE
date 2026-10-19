@@ -42,6 +42,16 @@ class ConnectionConfig:
         return d
 
 
+_CONNECT_HINTS = {
+    1130: (
+        "\n\nThe server only accepts this MySQL user from its own machine (normal on "
+        "XUI.one). Use the SSH connection mode, an SSH tunnel "
+        "(ssh -L 3307:127.0.0.1:3306 root@server), or run a generated script on the server."
+    ),
+    1045: "\n\nWrong user/password, or this user is not allowed from your IP address.",
+}
+
+
 def _quote_ident(name: str) -> str:
     """Safely quote a MySQL identifier (table/column) by escaping backticks."""
     if "\x00" in name:
@@ -81,7 +91,9 @@ class MySQLSource(DataSource):
             )
             log.info("Connected to %s", self.label)
         except Exception as exc:  # noqa: BLE001 - normalise to SourceError
-            raise SourceError(f"Could not connect: {exc}") from exc
+            code = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
+            hint = _CONNECT_HINTS.get(code, "")
+            raise SourceError(f"Could not connect: {exc}{hint}") from exc
 
     def close(self) -> None:
         if self._conn is not None:

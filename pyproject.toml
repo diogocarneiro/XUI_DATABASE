@@ -14,6 +14,7 @@ keywords = ["xui", "xtream-ui", "streamcreed", "iptv", "mysql", "migration", "ba
 dependencies = [
     "PySide6>=6.7,<6.9",
     "PyMySQL>=1.1.0",
+    "paramiko>=3.4",
     "sqlparse>=0.5.0",
 ]
 

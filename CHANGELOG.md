@@ -12,6 +12,12 @@ All notable changes to this project are documented here. The format is based on
   page. Strips the dump's `CREATE DATABASE`/`USE` directives, skips log rows by
   default, relaxes `sql_mode` for MySQL 5.x dumps, refuses XUI.one dumps, can
   write a script to run on the server, and optionally grants XUI's DB user.
+- **SSH mode** for `xui-migrate` (`--ssh-host` …, default in the GUI): uploads a
+  gzipped script over SFTP and runs the server's own `mysql`, so servers whose
+  MySQL refuses remote logins (error 1130, the XUI.one default) work unchanged.
+  MySQL credentials go in a temporary `chmod 600` option file, never on the
+  command line. New `core/ssh_remote.py`; new dependency `paramiko`.
+- Connection errors 1130/1045 now explain the cause and the alternatives.
 - `core/xui_migrate.py`; `.sql.gz` dump support (`read_sql_text`);
   `MySQLSource.execute`.
 - Copyright header on every source file, enforced by `tests/test_copyright.py`.

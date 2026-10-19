@@ -143,12 +143,18 @@ called `xui_migrate` on the XUI server. `xui-migrate` puts your old dump there:
 # 1. Check the dump
 python -m xdbtool xui-migrate old_panel.sql.gz --check-only
 
-# 2a. Load it straight into the XUI server. XUI's MySQL usually listens only on
-#     localhost, so open an SSH tunnel first:  ssh -L 3307:127.0.0.1:3306 root@xui-server
+# 2a. Recommended: over SSH. XUI's MySQL refuses remote logins (error 1130), so the
+#     tool uploads a script and runs the server's own mysql client. Blank
+#     --mysql-user = root via unix socket; otherwise use XUI's user from config.ini.
+python -m xdbtool xui-migrate old_panel.sql.gz --ssh-host 192.168.1.106 \
+    --ssh-user root --ssh-password secret --drop
+
+# 2b. Direct MySQL (only if the server accepts your IP, or through an SSH tunnel:
+#     ssh -L 3307:127.0.0.1:3306 root@xui-server)
 python -m xdbtool xui-migrate old_panel.sql.gz --target-host 127.0.0.1 --target-port 3307 \
     --target-user root --target-password secret --drop
 
-# 2b. …or write a script, copy it to the server and run it there
+# 2c. …or write a script, copy it to the server and run it there
 python -m xdbtool xui-migrate old_panel.sql.gz --sql-out xui_migrate.sql --drop
 #     (on the server)  mysql -u root -p < xui_migrate.sql
 ```
@@ -171,6 +177,7 @@ xdbtool/
     migrator.py     # column-level migration engine
     restore.py      # execute a .sql dump on a live server
     xui_migrate.py  # stage an old panel dump as `xui_migrate` for XUI.one
+    ssh_remote.py   # SSH/SFTP helper: run the server's mysql client remotely
     config.py       # connection profiles (user config dir)
   gui/            # PySide6 interface
   __main__.py     # CLI + GUI entry point

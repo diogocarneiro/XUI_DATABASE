@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QStackedWidget,
     QTableWidget,
@@ -43,6 +44,7 @@ from ..core.mysql_source import ConnectionConfig, MySQLSource
 from ..core.repair import check_and_repair, run_maintenance
 from ..core.restore import restore_dump
 from ..core.source import DataSource
+from ..core.ssh_remote import SshConfig
 from ..core.templates import create_from_template, register_template
 from .workers import JobRunner
 
@@ -500,20 +502,57 @@ class MainWindow(QMainWindow):
         )
         intro.setWordWrap(True)
         form.addRow(intro)
+        self.x_mode = QComboBox()
+        self.x_mode.addItem("SSH — run mysql on the server (recommended)", "ssh")
+        self.x_mode.addItem("Direct MySQL connection", "mysql")
+        self.x_mode.setToolTip("XUI's MySQL normally refuses remote logins (error 1130); "
+                               "SSH mode needs no MySQL change on the server.")
+        form.addRow("Connect via:", self.x_mode)
+
+        self.x_ssh_host = QLineEdit()
+        self.x_ssh_host.setPlaceholderText("XUI server IP, e.g. 192.168.1.106")
+        self.x_ssh_port = QSpinBox()
+        self.x_ssh_port.setRange(1, 65535)
+        self.x_ssh_port.setValue(22)
+        self.x_ssh_user = QLineEdit("root")
+        self.x_ssh_pass = QLineEdit()
+        self.x_ssh_pass.setEchoMode(QLineEdit.Password)
+        self.x_ssh_pass.setPlaceholderText("blank = SSH key / agent")
+        self.x_ssh_key = QLineEdit()
+        self.x_ssh_key.setPlaceholderText("optional private key file")
+        form.addRow(QLabel("<b>SSH</b>"))
+        form.addRow("SSH host:", self.x_ssh_host)
+        form.addRow("SSH port:", self.x_ssh_port)
+        form.addRow("SSH user:", self.x_ssh_user)
+        form.addRow("SSH password:", self.x_ssh_pass)
+        form.addRow("SSH key:", self.x_ssh_key)
+        ssh_rows = [form.rowCount() - i for i in range(1, 7)]
+
         self.x_host = QLineEdit("127.0.0.1")
-        self.x_host.setToolTip("XUI's MySQL is usually local-only: use an SSH tunnel "
-                               "(ssh -L 3306:127.0.0.1:3306 root@xui-server) or write a script.")
         self.x_port = QSpinBox()
         self.x_port.setRange(1, 65535)
         self.x_port.setValue(3306)
-        self.x_user = QLineEdit("root")
+        self.x_user = QLineEdit()
         self.x_pass = QLineEdit()
         self.x_pass.setEchoMode(QLineEdit.Password)
-        form.addRow(QLabel("<b>XUI server</b> (MySQL/MariaDB)"))
+        form.addRow(QLabel("<b>MySQL</b> (in SSH mode: blank user = root via socket; "
+                           "or XUI's user from config.ini)"))
         form.addRow("Host:", self.x_host)
         form.addRow("Port:", self.x_port)
+        mysql_rows = [form.rowCount() - 2, form.rowCount() - 1]
         form.addRow("User:", self.x_user)
         form.addRow("Password:", self.x_pass)
+
+        def on_mode(_idx: int) -> None:
+            ssh = self.x_mode.currentData() == "ssh"
+            for r in ssh_rows:
+                form.setRowVisible(r, ssh)
+            for r in mysql_rows:
+                form.setRowVisible(r, not ssh)
+            self.x_user.setPlaceholderText("blank = root via socket" if ssh else "")
+
+        self.x_mode.currentIndexChanged.connect(on_mode)
+        on_mode(0)
 
         form.addRow(QLabel("<b>Old panel dump</b>"))
         self.x_dump = QLineEdit()
@@ -544,7 +583,10 @@ class MainWindow(QMainWindow):
         form.addRow(check_btn)
         form.addRow(load_btn)
         form.addRow(script_btn)
-        return w
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(w)
+        return scroll
 
     def _browse_xui_dump(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -601,25 +643,45 @@ class MainWindow(QMainWindow):
         prepare = self._xui_prepare_job()
         if not prepare:
             return
-        cfg = ConnectionConfig(
-            host=self.x_host.text().strip(), port=self.x_port.value(),
-            user=self.x_user.text().strip(), password=self.x_pass.text(),
-        )
+        use_ssh = self.x_mode.currentData() == "ssh"
+        mysql_user, mysql_pass = self.x_user.text().strip(), self.x_pass.text()
+        if use_ssh:
+            ssh_cfg = SshConfig(
+                host=self.x_ssh_host.text().strip(), port=self.x_ssh_port.value(),
+                user=self.x_ssh_user.text().strip(), password=self.x_ssh_pass.text(),
+                key_file=self.x_ssh_key.text().strip(),
+            )
+            host = ssh_cfg.host
+        else:
+            cfg = ConnectionConfig(
+                host=self.x_host.text().strip(), port=self.x_port.value(),
+                user=mysql_user or "root", password=mysql_pass,
+            )
+            host = cfg.host
+        if not host:
+            QMessageBox.warning(self, "No server", "Enter the XUI server host.")
+            return
         drop, grant = self.x_drop.isChecked(), self.x_grant.text().strip() or None
         db = xui_migrate.MIGRATE_DB
         warn = f"\nThe existing `{db}` will be DROPPED." if drop else ""
         if QMessageBox.question(
             self, "Confirm",
-            f"Load '{Path(self.x_dump.text()).name}' into `{db}` on {cfg.host}?{warn}\n"
+            f"Load '{Path(self.x_dump.text()).name}' into `{db}` on {host}?{warn}\n"
             "Only this database is written; the live `xui` database is not touched.",
         ) != QMessageBox.Yes:
             return
 
         def job(progress, message):
             prepared = prepare(message)
-            message(f"Loading into `{db}` on {cfg.host}…")
-            result = xui_migrate.stage_live(cfg, prepared, drop_existing=drop,
-                                            grant_to=grant, progress=progress)
+            message(f"Loading into `{db}` on {host}{' over SSH' if use_ssh else ''}…")
+            if use_ssh:
+                result = xui_migrate.stage_via_ssh(
+                    ssh_cfg, prepared, mysql_user=mysql_user, mysql_password=mysql_pass,
+                    drop_existing=drop, grant_to=grant, progress=progress, message=message,
+                )
+            else:
+                result = xui_migrate.stage_live(cfg, prepared, drop_existing=drop,
+                                                grant_to=grant, progress=progress)
             message(f"Loaded {result['tables']} tables ({result['statements']} statements).")
             for table, n in result["row_counts"].items():
                 message(f"  {table}: {n} rows")

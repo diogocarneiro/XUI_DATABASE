@@ -208,19 +208,33 @@ def cmd_xui_migrate(args) -> int:
                            drop_existing=args.drop, grant_to=args.grant)
         print(f"Wrote {out}. On the XUI server run:  mysql -u root -p < {out.name}")
         return 0
-    if not args.target_host:
-        print("--target-host is required unless --sql-out or --check-only is used.",
-              file=sys.stderr)
+    if not (args.target_host or args.ssh_host):
+        print("--ssh-host or --target-host is required unless --sql-out or --check-only "
+              "is used.", file=sys.stderr)
         return 2
 
-    cfg = ConnectionConfig(
-        host=args.target_host, port=args.target_port, user=args.target_user,
-        password=args.target_password,
-    )
+    from .core.source import SourceError
+    from .core.ssh_remote import SshConfig, SshError
+    from .core.xui_migrate import stage_via_ssh
+
     try:
-        result = stage_live(cfg, prepared, database=args.database, drop_existing=args.drop,
-                            grant_to=args.grant, progress=_cli_progress)
-    except XuiMigrateError as exc:
+        if args.ssh_host:
+            ssh = SshConfig(host=args.ssh_host, port=args.ssh_port, user=args.ssh_user,
+                            password=args.ssh_password, key_file=args.ssh_key or "")
+            result = stage_via_ssh(
+                ssh, prepared, mysql_user=args.mysql_user, mysql_password=args.mysql_password,
+                database=args.database, drop_existing=args.drop, grant_to=args.grant,
+                progress=_cli_progress, message=lambda m: print(f"\n{m}", file=sys.stderr),
+            )
+        else:
+            cfg = ConnectionConfig(
+                host=args.target_host, port=args.target_port, user=args.target_user,
+                password=args.target_password,
+            )
+            result = stage_live(cfg, prepared, database=args.database,
+                                drop_existing=args.drop, grant_to=args.grant,
+                                progress=_cli_progress)
+    except (XuiMigrateError, SshError, SourceError) as exc:
         print(f"\n{exc}", file=sys.stderr)
         return 2
     print(file=sys.stderr)
@@ -311,7 +325,16 @@ def build_parser() -> argparse.ArgumentParser:
                     "server, ready for XUI's own 'Database Migration' page.",
     )
     px.add_argument("dump_file", help="Old panel dump (.sql or .sql.gz)")
-    px.add_argument("--target-host", help="XUI server MySQL host (use an SSH tunnel if local-only)")
+    px.add_argument("--ssh-host",
+                    help="XUI server SSH host (recommended: runs mysql on the server)")
+    px.add_argument("--ssh-port", type=int, default=22)
+    px.add_argument("--ssh-user", default="root")
+    px.add_argument("--ssh-password", default="", help="SSH password (or use --ssh-key/agent)")
+    px.add_argument("--ssh-key", help="Private key file for SSH")
+    px.add_argument("--mysql-user", default="",
+                    help="With --ssh-host: MySQL user on the server (blank = root via socket)")
+    px.add_argument("--mysql-password", default="")
+    px.add_argument("--target-host", help="Direct MySQL host (only if it accepts remote logins)")
     px.add_argument("--target-port", type=int, default=3306)
     px.add_argument("--target-user", default="root")
     px.add_argument("--target-password", default="")

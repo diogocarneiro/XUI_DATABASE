@@ -1,0 +1,140 @@
+<h1>Guia do XUI DB Tool</h1>
+<p>Versão {version}. Para administradores de painéis IPTV (XUI.one, Xtream UI, StreamCreed,
+ZapX, Xtream Codes v2) que gerem bases de dados <b>suas ou que estão autorizados a gerir</b>.</p>
+<p><b>Índice:</b>
+<a href="#start">Começar</a> · <a href="#source">Origem dos dados</a> ·
+<a href="#ssh">Ligação por SSH</a> · <a href="#export">Exportar</a> ·
+<a href="#maintenance">Manutenção</a> · <a href="#templates">Templates</a> ·
+<a href="#migrate">Migrar / Restaurar</a> · <a href="#xui-migrate">Migração para XUI</a> ·
+<a href="#xui-import">Importar backup XUI</a> · <a href="#safety">Segurança</a> ·
+<a href="#preferences">Tema e idioma</a> · <a href="#updates">Actualizações</a> ·
+<a href="#problems">Problemas comuns</a> · <a href="#developer">Programador</a></p>
+
+<h2><a name="start"></a>Começar</h2>
+<ol>
+<li>Em <b>Origem dos dados</b>, escolhe uma base de dados em directo (MySQL/MariaDB) ou um
+ficheiro de dump <code>.sql</code>, e carrega em <b>Ligar / Carregar</b>.</li>
+<li>A app identifica o painel e lista as tabelas, com categoria, linhas e colunas.
+Marca as tabelas com que queres trabalhar (<b>Todos</b> / <b>Nenhum</b> / filtro).</li>
+<li>Usa os separadores à direita. O registo em baixo mostra o que está a acontecer.</li>
+</ol>
+<p>Botões <b>azuis</b> são as acções principais; botões com contorno <b>vermelho</b> escrevem
+num servidor (importar, restaurar, migrar, reparar) e pedem sempre confirmação.</p>
+
+<h2><a name="source"></a>Origem dos dados</h2>
+<ul>
+<li><b>MySQL / MariaDB em directo</b> — host, porta, utilizador, password e base de dados
+(por exemplo <code>xui</code>). Necessário para manutenção e para exportar o
+<code>CREATE TABLE</code>.</li>
+<li><b>Ficheiro de dump</b> — lê um <code>.sql</code> ou <code>.sql.gz</code> sem servidor.
+O ficheiro é todo lido para memória; para dumps enormes usa a ligação em directo.</li>
+<li><b>Perfis</b> — <i>Guardar</i> grava a ligação (incluindo SSH) para a próxima vez. A
+password só é guardada se marcares <i>Guardar password no perfil</i>.</li>
+</ul>
+
+<h2><a name="ssh"></a>Ligação por SSH</h2>
+<p>O MariaDB do XUI só aceita ligações do próprio servidor (erro <b>1130</b> a partir do teu
+PC). Em <b>Ligar via</b> há três modos:</p>
+<ul>
+<li><b>Ligação MySQL directa</b> — só se o servidor aceitar o teu IP.</li>
+<li><b>SSH + socket MySQL do servidor</b> — o mais simples no XUI: entra como o
+<code>mysql -uroot</code> no servidor, <b>sem password MySQL</b>. Indica o host, utilizador e
+password <i>SSH</i>; deixa a password MySQL em branco.</li>
+<li><b>Túnel SSH para MySQL TCP 127.0.0.1</b> — para utilizadores MySQL com password, por
+exemplo o do <code>/home/xui/config/config.ini</code>.</li>
+</ul>
+<p>Os separadores Templates e Migrar / Restaurar têm a mesma escolha.</p>
+
+<h2><a name="export"></a>Exportar / Backup</h2>
+<p>Exporta as tabelas marcadas em <b>JSON</b>, <b>CSV</b> ou <b>SQL</b> (com
+<code>CREATE TABLE</code> quando a origem está em directo). <i>Ocultar colunas de
+passwords/segredos</i> substitui esses valores, útil para partilhar exportações.
+Faz sempre um backup SQL antes de reparar, migrar ou importar.</p>
+
+<h2><a name="maintenance"></a>Manutenção</h2>
+<p>Corre <b>Verificar</b>, <b>Reparar</b>, <b>Analisar</b> ou <b>Optimizar</b> nas tabelas
+marcadas (só com ligação em directo). <b>Verificar e reparar automaticamente</b> verifica
+todas e repara apenas as que estão danificadas.</p>
+
+<h2><a name="templates"></a>Templates / Nova BD</h2>
+<p>Um template é o schema de uma instalação limpa de um painel. <b>Registar .sql base</b>
+guarda-o uma vez; depois <b>Criar base de dados a partir do template</b> cria uma base
+<b>nova e vazia</b> num servidor (por exemplo <code>xui_test</code>). Não uses o nome da base
+do painel em produção (<code>xui</code>): com <i>DROP</i> marcado ela seria substituída — a app
+recusa e pede que escrevas o nome para confirmar.</p>
+
+<h2><a name="migrate"></a>Migrar / Restaurar</h2>
+<ul>
+<li><b>Migrar a origem carregada</b> — copia as linhas para uma base de destino, coluna a
+coluna (só as colunas que existem nos dois lados). <i>Gerar plano</i> mostra antes o que
+vai ser copiado; <i>Simulação</i> grava um <code>.sql</code> em vez de escrever.</li>
+<li><b>Restaurar um dump</b> — executa um <code>.sql</code> tal como está no servidor de
+destino, opcionalmente criando a base primeiro.</li>
+</ul>
+
+<h2><a name="xui-migrate"></a>Migração para XUI (painéis antigos)</h2>
+<p>Para trazer um painel <b>Xtream UI, ZapX, StreamCreed ou Xtream Codes v2</b> para o
+XUI.one, usando a página <i>Database Migration</i> do próprio XUI:</p>
+<ol>
+<li>No separador <b>Migração XUI</b>, escolhe o modo SSH, o servidor XUI e o dump antigo.</li>
+<li><b>Verificar dump</b> e depois <b>Carregar para <code>xui_migrate</code></b> (ou grava um
+script para correr no servidor).</li>
+<li>No painel XUI: <i>Database Migration</i> → <b>Migrate Database</b>.</li>
+</ol>
+<p>Só a base <code>xui_migrate</code> é escrita; a base <code>xui</code> em produção não é
+tocada. As linhas de logs são ignoradas, porque o XUI não as migra.</p>
+
+<h2><a name="xui-import"></a>Importar um backup XUI.one para outro XUI</h2>
+<p>A página de migração do XUI recusa backups XUI ("Can't migrate from XUI to XUI"). Esta
+função faz a importação directamente na base <code>xui</code>, por SSH:</p>
+<ul>
+<li><b>Restaurar</b> — escolhe o que trazer: canais, filmes, séries, rádios, bouquets,
+linhas e dispositivos, revendedores, EPG, listas de bloqueio. Só os tipos escolhidos são
+substituídos; o resto fica como está.</li>
+<li><b>Streams</b> — mover todos para o servidor principal deste XUI (ideal para um
+servidor só) ou adicionar os load balancers antigos.</li>
+<li><b>Sistema</b> — por defeito mantém os servidores, definições e códigos de acesso do
+XUI novo; podes importar cada um em separado.</li>
+<li>Antes de mudar alguma coisa é feito um backup da <code>xui</code> actual no servidor
+(<code>/root/xui-before-import-*.sql.gz</code>) e tudo corre numa transacção.</li>
+<li>No fim é criado um <b>acesso de recurso</b> (código de acesso + utilizador admin) e são
+mostrados todos os URLs do painel. Guarda a password e apaga o acesso depois de entrares.</li>
+</ul>
+<p>Usa sempre primeiro <b>Pré-visualizar importação XUI</b>.</p>
+
+<h2><a name="safety"></a>Segurança</h2>
+<ul>
+<li>As credenciais são copiadas tal como estão; os hashes de passwords nunca são decifrados.</li>
+<li>A app recusa fazer <code>DROP</code> de uma base com dados de painel sem confirmação escrita.</li>
+<li>As passwords MySQL enviadas por SSH vão num ficheiro temporário protegido, nunca na linha
+de comando.</li>
+</ul>
+
+<h2><a name="preferences"></a>Tema e idioma</h2>
+<p><b>Tema</b>: Automático (segue o sistema), Claro ou Escuro. <b>Idioma</b>: Português,
+English, Français, Español, Italiano. As escolhas ficam guardadas.</p>
+
+<h2><a name="updates"></a>Actualizações</h2>
+<p><b>Ajuda → Procurar actualizações</b> compara a tua versão com a última release no GitHub
+e mostra as novidades. <b>Actualizar agora</b> descarrega a versão nova, verifica o SHA-256
+e instala-a (a app reinicia). Na linha de comando: <code>update --check</code> e
+<code>update</code>. Todas as versões: <a href="{releases}">{releases}</a></p>
+
+<h2><a name="problems"></a>Problemas comuns</h2>
+<ul>
+<li><b>1130 "Host … is not allowed"</b> — o MySQL não aceita o teu IP: usa um modo SSH.</li>
+<li><b>1045 "Access denied … (using password: NO)"</b> com root — o root só entra pelo socket:
+escolhe <i>SSH + socket MySQL do servidor</i>.</li>
+<li><b>"Can't migrate from XUI to XUI"</b> — o ficheiro é um backup XUI.one: usa
+<a href="#xui-import">Importar backup XUI</a>.</li>
+<li><b>Um URL importado não abre</b> — reinicia o XUI ou grava de novo o código de acesso no
+painel, para o nginx o voltar a carregar.</li>
+</ul>
+
+<h2><a name="developer"></a>Programador</h2>
+<p><b>{developer}</b><br>
+Telegram: <a href="{telegram}">{telegram}</a><br>
+Email: <a href="mailto:{email}">{email}</a><br>
+Código e sugestões: <a href="{repository}">{repository}</a> ·
+<a href="{issues}">reportar um problema</a></p>
+<p>Licença MIT.</p>

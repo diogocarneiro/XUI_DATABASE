@@ -1,0 +1,140 @@
+<h1>XUI DB Tool guide</h1>
+<p>Version {version}. For administrators of IPTV panels (XUI.one, Xtream UI, StreamCreed,
+ZapX, Xtream Codes v2) working on databases they <b>own or are authorised to manage</b>.</p>
+<p><b>Contents:</b>
+<a href="#start">Getting started</a> · <a href="#source">Data source</a> ·
+<a href="#ssh">SSH connections</a> · <a href="#export">Export</a> ·
+<a href="#maintenance">Maintenance</a> · <a href="#templates">Templates</a> ·
+<a href="#migrate">Migrate / Restore</a> · <a href="#xui-migrate">Migrating to XUI</a> ·
+<a href="#xui-import">Importing an XUI backup</a> · <a href="#safety">Safety</a> ·
+<a href="#preferences">Theme and language</a> · <a href="#updates">Updates</a> ·
+<a href="#problems">Common problems</a> · <a href="#developer">Developer</a></p>
+
+<h2><a name="start"></a>Getting started</h2>
+<ol>
+<li>In <b>Data source</b>, pick a live database (MySQL/MariaDB) or a <code>.sql</code> dump file
+and press <b>Connect / Load</b>.</li>
+<li>The app identifies the panel and lists its tables with category, rows and columns. Tick
+the tables you want to work on (<b>All</b> / <b>None</b> / filter).</li>
+<li>Use the tabs on the right. The log at the bottom shows what is happening.</li>
+</ol>
+<p><b>Blue</b> buttons are the main actions; buttons outlined in <b>red</b> write to a server
+(import, restore, migrate, repair) and always ask for confirmation.</p>
+
+<h2><a name="source"></a>Data source</h2>
+<ul>
+<li><b>Live MySQL / MariaDB</b> — host, port, user, password and database (for example
+<code>xui</code>). Needed for maintenance and for exporting <code>CREATE TABLE</code>.</li>
+<li><b>Dump file</b> — reads a <code>.sql</code> or <code>.sql.gz</code> without a server. The
+whole file is read into memory; for huge dumps use a live connection.</li>
+<li><b>Profiles</b> — <i>Save</i> stores the connection (SSH included) for next time. The
+password is only stored if you tick <i>Save password in profile</i>.</li>
+</ul>
+
+<h2><a name="ssh"></a>SSH connections</h2>
+<p>XUI's MariaDB only accepts connections from the server itself (error <b>1130</b> from your
+PC). <b>Connect via</b> offers three modes:</p>
+<ul>
+<li><b>Direct MySQL connection</b> — only if the server accepts your IP.</li>
+<li><b>SSH + server MySQL socket</b> — the simplest on XUI: logs in like <code>mysql -uroot</code>
+on the server, <b>without a MySQL password</b>. Give the <i>SSH</i> host, user and password;
+leave the MySQL password empty.</li>
+<li><b>SSH tunnel to MySQL TCP 127.0.0.1</b> — for MySQL users with a password, such as the one
+in <code>/home/xui/config/config.ini</code>.</li>
+</ul>
+<p>The Templates and Migrate / Restore tabs offer the same choice.</p>
+
+<h2><a name="export"></a>Export / Backup</h2>
+<p>Exports the ticked tables as <b>JSON</b>, <b>CSV</b> or <b>SQL</b> (with
+<code>CREATE TABLE</code> when the source is live). <i>Redact password/secret-like
+columns</i> hides those values, useful when sharing exports. Always take an SQL backup
+before repairing, migrating or importing.</p>
+
+<h2><a name="maintenance"></a>Maintenance</h2>
+<p>Runs <b>Check</b>, <b>Repair</b>, <b>Analyze</b> or <b>Optimize</b> on the ticked tables
+(live connection only). <b>Check &amp; auto-repair broken tables</b> checks them all and
+repairs only the damaged ones.</p>
+
+<h2><a name="templates"></a>Templates / New DB</h2>
+<p>A template is the schema of a clean panel installation. <b>Register base .sql</b> stores
+it once; <b>Create database from template</b> then creates a <b>new, empty</b> database on a
+server (for example <code>xui_test</code>). Do not use the live panel's database name
+(<code>xui</code>): with <i>DROP</i> ticked it would be replaced — the app refuses and asks you
+to type the name to confirm.</p>
+
+<h2><a name="migrate"></a>Migrate / Restore</h2>
+<ul>
+<li><b>Migrate the loaded source</b> — copies rows into a target database column by column
+(only columns present on both sides). <i>Build plan</i> shows what will be copied; <i>Dry
+run</i> writes a <code>.sql</code> instead of writing to the server.</li>
+<li><b>Restore a dump</b> — runs a <code>.sql</code> as-is on the target server, optionally
+creating the database first.</li>
+</ul>
+
+<h2><a name="xui-migrate"></a>Migrating to XUI (older panels)</h2>
+<p>To bring an <b>Xtream UI, ZapX, StreamCreed or Xtream Codes v2</b> panel to XUI.one with
+XUI's own <i>Database Migration</i> page:</p>
+<ol>
+<li>In the <b>XUI Migration</b> tab choose SSH mode, the XUI server and the old dump.</li>
+<li><b>Check dump</b>, then <b>Load into <code>xui_migrate</code></b> (or write a script to
+run on the server).</li>
+<li>In the XUI panel: <i>Database Migration</i> → <b>Migrate Database</b>.</li>
+</ol>
+<p>Only the <code>xui_migrate</code> database is written; the live <code>xui</code> database is
+not touched. Log rows are skipped because XUI does not migrate them.</p>
+
+<h2><a name="xui-import"></a>Importing an XUI.one backup into another XUI</h2>
+<p>XUI's migration page refuses XUI backups ("Can't migrate from XUI to XUI"). This feature
+imports straight into the <code>xui</code> database over SSH:</p>
+<ul>
+<li><b>Restore</b> — choose what to bring: channels, movies, series, radio, bouquets, lines
+and devices, resellers, EPG, block lists. Only the chosen kinds are replaced; the rest stays
+as it is.</li>
+<li><b>Streams</b> — move them all to this XUI's main server (ideal for a single server) or
+add the old load balancers.</li>
+<li><b>System</b> — by default the new XUI keeps its own servers, settings and access codes;
+each can be imported separately.</li>
+<li>Before anything changes, the current <code>xui</code> is backed up on the server
+(<code>/root/xui-before-import-*.sql.gz</code>) and everything runs in one transaction.</li>
+<li>At the end a <b>rescue access</b> (access code + admin user) is created and every panel
+URL is listed. Save the password and delete the rescue access once you are in.</li>
+</ul>
+<p>Always use <b>Preview XUI import</b> first.</p>
+
+<h2><a name="safety"></a>Safety</h2>
+<ul>
+<li>Credentials are copied as they are; password hashes are never decrypted.</li>
+<li>The app refuses to <code>DROP</code> a database holding panel data without typed
+confirmation.</li>
+<li>MySQL passwords sent over SSH go in a protected temporary file, never on the command
+line.</li>
+</ul>
+
+<h2><a name="preferences"></a>Theme and language</h2>
+<p><b>Theme</b>: Automatic (follows the system), Light or Dark. <b>Language</b>: Português,
+English, Français, Español, Italiano. Both choices are remembered.</p>
+
+<h2><a name="updates"></a>Updates</h2>
+<p><b>Help → Check for updates</b> compares your version with the latest GitHub release and
+shows what is new. <b>Update now</b> downloads the new version, verifies its SHA-256 and
+installs it (the app restarts). On the command line: <code>update --check</code> and
+<code>update</code>. All versions: <a href="{releases}">{releases}</a></p>
+
+<h2><a name="problems"></a>Common problems</h2>
+<ul>
+<li><b>1130 "Host … is not allowed"</b> — MySQL does not accept your IP: use an SSH mode.</li>
+<li><b>1045 "Access denied … (using password: NO)"</b> as root — root only logs in through the
+socket: choose <i>SSH + server MySQL socket</i>.</li>
+<li><b>"Can't migrate from XUI to XUI"</b> — the file is an XUI.one backup: use
+<a href="#xui-import">Importing an XUI backup</a>.</li>
+<li><b>An imported URL does not open</b> — restart XUI or save the access code again in the
+panel so nginx reloads it.</li>
+</ul>
+
+<h2><a name="developer"></a>Developer</h2>
+<p><b>{developer}</b><br>
+Telegram: <a href="{telegram}">{telegram}</a><br>
+Email: <a href="mailto:{email}">{email}</a><br>
+Source code and suggestions: <a href="{repository}">{repository}</a> ·
+<a href="{issues}">report a problem</a></p>
+<p>MIT License.</p>

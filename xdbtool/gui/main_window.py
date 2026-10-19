@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QActionGroup, QDesktopServices
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -30,7 +30,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QSplitter,
-    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -39,6 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
+from .. import about as about_info
 from ..core import profiles, templates, updater, xui_import, xui_migrate
 from ..core.config import (
     ConnectionProfile,
@@ -58,6 +58,7 @@ from ..core.ssh_remote import SshConfig
 from ..core.templates import create_from_template, register_template
 from ..i18n import LANGUAGES, _, get_language, set_language
 from . import theme
+from .help_dialog import AboutDialog, HelpDialog
 from .ssh_fields import SshFields
 from .workers import JobRunner
 
@@ -120,6 +121,11 @@ class MainWindow(QMainWindow):
             group.addAction(act)
             lang_menu.addAction(act)
         help_menu = self.menuBar().addMenu(_("Help"))
+        guide = QAction(_("User guide"), self)
+        guide.setShortcut(QKeySequence.HelpContents)  # F1
+        guide.triggered.connect(lambda: HelpDialog(self).exec())
+        help_menu.addAction(guide)
+        help_menu.addSeparator()
         check = QAction(_("Check for updates…"), self)
         check.triggered.connect(lambda: self._check_updates(silent=False))
         auto_check = QAction(_("Check for updates at startup"), self, checkable=True)
@@ -128,6 +134,13 @@ class MainWindow(QMainWindow):
         about = QAction(_("About"), self)
         about.triggered.connect(self._about)
         for act in (check, auto_check):
+            help_menu.addAction(act)
+        help_menu.addSeparator()
+        contact = QAction(_("Contact the developer (Telegram)"), self)
+        contact.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(about_info.TELEGRAM)))
+        report = QAction(_("Report a problem / suggestion (GitHub)"), self)
+        report.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(about_info.ISSUES)))
+        for act in (contact, report):
             help_menu.addAction(act)
         help_menu.addSeparator()
         help_menu.addAction(about)
@@ -207,7 +220,7 @@ class MainWindow(QMainWindow):
     def _build_header(self) -> QWidget:
         header = QWidget()
         row = QHBoxLayout(header)
-        row.setContentsMargins(2, 0, 2, 0)
+        row.setContentsMargins(2, 2, 2, 6)
         title = QLabel("XUI DB Tool")
         title.setObjectName("appTitle")
         subtitle = QLabel(_("Inspect, back up, repair and migrate panel databases"))
@@ -254,20 +267,21 @@ class MainWindow(QMainWindow):
     def _build_source_box(self) -> QWidget:
         box = QGroupBox(_("Data source"))
         outer = QVBoxLayout(box)
+        outer.setSpacing(10)
 
         picker = QHBoxLayout()
         self.source_kind = QComboBox()
         self.source_kind.addItems([_("Live MySQL / MariaDB"), _("SQL dump file (.sql)")])
-        self.source_kind.currentIndexChanged.connect(lambda i: self.source_stack.setCurrentIndex(i))
+        self.source_kind.currentIndexChanged.connect(self._show_source_page)
         picker.addWidget(QLabel(_("Source type:")))
         picker.addWidget(self.source_kind)
         picker.addStretch(1)
         outer.addLayout(picker)
 
-        self.source_stack = QStackedWidget()
-        self.source_stack.addWidget(self._build_mysql_form())
-        self.source_stack.addWidget(self._build_dump_form())
-        outer.addWidget(self.source_stack)
+        self.source_pages = [self._build_mysql_form(), self._build_dump_form()]
+        for page in self.source_pages:
+            outer.addWidget(page)
+        self._show_source_page(0)
 
         row = QHBoxLayout()
         self.connect_btn = self._role(QPushButton(_("Connect / Load")), "primary")
@@ -278,6 +292,12 @@ class MainWindow(QMainWindow):
         row.addWidget(self.status_lbl, 1)
         outer.addLayout(row)
         return box
+
+    def _show_source_page(self, index: int) -> None:
+        """Show only the chosen source form. Hidden forms take no space, so the card
+        shrinks to the short dump form (a QStackedWidget kept the MySQL form's height)."""
+        for i, page in enumerate(self.source_pages):
+            page.setVisible(i == index)
 
     def _build_mysql_form(self) -> QWidget:
         w = QWidget()
@@ -1368,16 +1388,7 @@ class MainWindow(QMainWindow):
         )
 
     def _about(self) -> None:
-        QMessageBox.about(
-            self, _("About XUI DB Tool"),
-            "XUI DB Tool\n\n"
-            + _("Inspect, back up, repair and migrate XUI / Xtream-UI / StreamCreed panel "
-                "databases you own or are authorised to manage.")
-            + "\n\n"
-            + _("Credentials are migrated verbatim; hashes are never decrypted.")
-            + "\n\nCopyright © 2026 Diogo Carneiro <diogoncarneiro@outlook.com>\n"
-            + _("MIT License."),
-        )
+        AboutDialog(self).exec()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
         if self.runner.busy:

@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-19
+### Added
+- **User guide** — *Ajuda → Guia de utilização* (F1): how every tab and feature
+  works, SSH modes, XUI migration and import step by step, and fixes for common
+  errors (1130, 1045, "Can't migrate from XUI to XUI"), in all five languages.
+- **Developer contacts** — *Ajuda → Contactar o programador (Telegram)*
+  (<https://t.me/diogoncarneiro>), *Reportar um problema / sugestão (GitHub)*, and
+  a new About window with clickable Telegram, email and GitHub links.
+
+### Fixed
+- Section titles such as "Origem dos dados" sat on the card border and cut into
+  the header; they are now a header row inside each card.
+- With *SQL dump file* selected, the Data source card kept the taller MySQL
+  form's height and left a large empty gap; it now fits the visible form.
+
 ## [0.2.0] - 2026-10-19
 ### Downloads
 - **Windows** — `XUI-DB-Tool-0.2.0-windows.zip`: the desktop app; unzip and run

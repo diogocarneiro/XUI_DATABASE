@@ -99,14 +99,17 @@ QLabel#status {{ color: {muted}; padding: 2px 8px; border-radius: 10px;
 QLabel#status[state="ok"] {{ color: {success}; }}
 QLabel#status[state="error"] {{ color: {danger}; }}
 
+/* Card with its title inside, as a header row (not straddling the border). */
 QGroupBox {{
     background: {surface}; border: 1px solid {border}; border-radius: 10px;
-    margin-top: 14px; padding: 14px 10px 10px 10px; font-weight: 600;
+    margin-top: 0; padding: 40px 14px 12px 14px; font-weight: 600;
 }}
 QGroupBox::title {{
-    subcontrol-origin: margin; subcontrol-position: top left;
-    left: 12px; padding: 0 6px; color: {muted};
+    subcontrol-origin: padding; subcontrol-position: top left;
+    left: 16px; top: 13px; padding: 0; color: {text}; font-size: 10.5pt;
 }}
+QTextBrowser {{ background: {surface}; border: 1px solid {border}; border-radius: 8px;
+    padding: 6px 10px; }}
 
 QTabWidget::pane {{
     background: {surface}; border: 1px solid {border}; border-radius: 10px; top: -1px;

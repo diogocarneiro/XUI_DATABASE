@@ -1,0 +1,150 @@
+<h1>Guide de XUI DB Tool</h1>
+<p>Version {version}. Pour les administrateurs de panneaux IPTV (XUI.one, Xtream UI,
+StreamCreed, ZapX, Xtream Codes v2) qui gèrent des bases de données <b>qui leur appartiennent
+ou qu'ils sont autorisés à gérer</b>.</p>
+<p><b>Sommaire :</b>
+<a href="#start">Démarrer</a> · <a href="#source">Source des données</a> ·
+<a href="#ssh">Connexion SSH</a> · <a href="#export">Export</a> ·
+<a href="#maintenance">Maintenance</a> · <a href="#templates">Modèles</a> ·
+<a href="#migrate">Migrer / Restaurer</a> · <a href="#xui-migrate">Migration vers XUI</a> ·
+<a href="#xui-import">Importer une sauvegarde XUI</a> · <a href="#safety">Sécurité</a> ·
+<a href="#preferences">Thème et langue</a> · <a href="#updates">Mises à jour</a> ·
+<a href="#problems">Problèmes courants</a> · <a href="#developer">Développeur</a></p>
+
+<h2><a name="start"></a>Démarrer</h2>
+<ol>
+<li>Dans <b>Source des données</b>, choisissez une base en direct (MySQL/MariaDB) ou un fichier
+de dump <code>.sql</code>, puis cliquez sur <b>Connecter / Charger</b>.</li>
+<li>L'application identifie le panneau et liste ses tables avec catégorie, lignes et colonnes.
+Cochez les tables à traiter (<b>Tous</b> / <b>Aucun</b> / filtre).</li>
+<li>Utilisez les onglets de droite. Le journal en bas montre ce qui se passe.</li>
+</ol>
+<p>Les boutons <b>bleus</b> sont les actions principales ; les boutons au contour <b>rouge</b>
+écrivent sur un serveur (import, restauration, migration, réparation) et demandent toujours
+une confirmation.</p>
+
+<h2><a name="source"></a>Source des données</h2>
+<ul>
+<li><b>MySQL / MariaDB en direct</b> — hôte, port, utilisateur, mot de passe et base (par
+exemple <code>xui</code>). Nécessaire pour la maintenance et pour exporter le
+<code>CREATE TABLE</code>.</li>
+<li><b>Fichier de dump</b> — lit un <code>.sql</code> ou <code>.sql.gz</code> sans serveur. Le
+fichier entier est chargé en mémoire ; pour les très gros dumps, utilisez la connexion en
+direct.</li>
+<li><b>Profils</b> — <i>Enregistrer</i> mémorise la connexion (SSH compris). Le mot de passe
+n'est enregistré que si vous cochez <i>Enregistrer le mot de passe dans le profil</i>.</li>
+</ul>
+
+<h2><a name="ssh"></a>Connexion SSH</h2>
+<p>Le MariaDB de XUI n'accepte que les connexions du serveur lui-même (erreur <b>1130</b>
+depuis votre PC). <b>Connexion via</b> propose trois modes :</p>
+<ul>
+<li><b>Connexion MySQL directe</b> — seulement si le serveur accepte votre IP.</li>
+<li><b>SSH + socket MySQL du serveur</b> — le plus simple sur XUI : se connecte comme
+<code>mysql -uroot</code> sur le serveur, <b>sans mot de passe MySQL</b>. Indiquez l'hôte,
+l'utilisateur et le mot de passe <i>SSH</i> ; laissez le mot de passe MySQL vide.</li>
+<li><b>Tunnel SSH vers MySQL TCP 127.0.0.1</b> — pour les utilisateurs MySQL avec mot de
+passe, comme celui de <code>/home/xui/config/config.ini</code>.</li>
+</ul>
+<p>Les onglets Modèles et Migrer / Restaurer proposent le même choix.</p>
+
+<h2><a name="export"></a>Export / Sauvegarde</h2>
+<p>Exporte les tables cochées en <b>JSON</b>, <b>CSV</b> ou <b>SQL</b> (avec
+<code>CREATE TABLE</code> si la source est en direct). <i>Masquer les colonnes de mots de
+passe/secrets</i> cache ces valeurs, utile pour partager un export. Faites toujours une
+sauvegarde SQL avant de réparer, migrer ou importer.</p>
+
+<h2><a name="maintenance"></a>Maintenance</h2>
+<p>Exécute <b>Vérifier</b>, <b>Réparer</b>, <b>Analyser</b> ou <b>Optimiser</b> sur les tables
+cochées (connexion en direct uniquement). <b>Vérifier et réparer automatiquement</b> vérifie
+toutes les tables et ne répare que celles qui sont endommagées.</p>
+
+<h2><a name="templates"></a>Modèles / Nouvelle BD</h2>
+<p>Un modèle est le schéma d'une installation propre d'un panneau. <b>Enregistrer un .sql de
+base</b> le mémorise une fois ; <b>Créer la base de données depuis le modèle</b> crée ensuite
+une base <b>nouvelle et vide</b> sur un serveur (par exemple <code>xui_test</code>).
+N'utilisez pas le nom de la base du panneau en production (<code>xui</code>) : avec
+<i>DROP</i> coché elle serait remplacée — l'application refuse et vous demande de saisir le
+nom pour confirmer.</p>
+
+<h2><a name="migrate"></a>Migrer / Restaurer</h2>
+<ul>
+<li><b>Migrer la source chargée</b> — copie les lignes vers une base cible colonne par colonne
+(seules les colonnes présentes des deux côtés). <i>Construire le plan</i> montre ce qui sera
+copié ; la <i>simulation</i> écrit un <code>.sql</code> au lieu d'écrire sur le serveur.</li>
+<li><b>Restaurer un dump</b> — exécute un <code>.sql</code> tel quel sur le serveur cible, en
+créant éventuellement la base d'abord.</li>
+</ul>
+
+<h2><a name="xui-migrate"></a>Migration vers XUI (anciens panneaux)</h2>
+<p>Pour amener un panneau <b>Xtream UI, ZapX, StreamCreed ou Xtream Codes v2</b> vers XUI.one
+avec la page <i>Database Migration</i> de XUI :</p>
+<ol>
+<li>Dans l'onglet <b>Migration XUI</b>, choisissez le mode SSH, le serveur XUI et l'ancien
+dump.</li>
+<li><b>Vérifier le dump</b>, puis <b>Charger dans <code>xui_migrate</code></b> (ou écrire un
+script à exécuter sur le serveur).</li>
+<li>Dans le panneau XUI : <i>Database Migration</i> → <b>Migrate Database</b>.</li>
+</ol>
+<p>Seule la base <code>xui_migrate</code> est écrite ; la base <code>xui</code> en production
+n'est pas touchée. Les lignes de journaux sont ignorées car XUI ne les migre pas.</p>
+
+<h2><a name="xui-import"></a>Importer une sauvegarde XUI.one dans un autre XUI</h2>
+<p>La page de migration de XUI refuse les sauvegardes XUI (« Can't migrate from XUI to XUI »).
+Cette fonction importe directement dans la base <code>xui</code>, via SSH :</p>
+<ul>
+<li><b>Restaurer</b> — choisissez quoi apporter : chaînes, films, séries, radios, bouquets,
+lignes et appareils, revendeurs, EPG, listes de blocage. Seuls les types choisis sont
+remplacés ; le reste ne change pas.</li>
+<li><b>Flux</b> — tous les déplacer vers le serveur principal de ce XUI (idéal pour un seul
+serveur) ou ajouter les anciens load balancers.</li>
+<li><b>Système</b> — par défaut, le nouveau XUI garde ses serveurs, paramètres et codes
+d'accès ; chacun peut être importé séparément.</li>
+<li>Avant toute modification, la base <code>xui</code> actuelle est sauvegardée sur le serveur
+(<code>/root/xui-before-import-*.sql.gz</code>) et tout se fait dans une transaction.</li>
+<li>À la fin, un <b>accès de secours</b> (code d'accès + utilisateur admin) est créé et toutes
+les URL du panneau sont affichées. Notez le mot de passe et supprimez l'accès une fois
+connecté.</li>
+</ul>
+<p>Utilisez toujours d'abord <b>Aperçu de l'import XUI</b>.</p>
+
+<h2><a name="safety"></a>Sécurité</h2>
+<ul>
+<li>Les identifiants sont copiés tels quels ; les hachages de mots de passe ne sont jamais
+déchiffrés.</li>
+<li>L'application refuse un <code>DROP</code> d'une base contenant des données de panneau sans
+confirmation écrite.</li>
+<li>Les mots de passe MySQL envoyés via SSH passent par un fichier temporaire protégé, jamais
+par la ligne de commande.</li>
+</ul>
+
+<h2><a name="preferences"></a>Thème et langue</h2>
+<p><b>Thème</b> : Automatique (suit le système), Clair ou Sombre. <b>Langue</b> : Português,
+English, Français, Español, Italiano. Les deux choix sont mémorisés.</p>
+
+<h2><a name="updates"></a>Mises à jour</h2>
+<p><b>Aide → Rechercher des mises à jour</b> compare votre version à la dernière release
+GitHub et affiche les nouveautés. <b>Mettre à jour maintenant</b> télécharge la nouvelle
+version, vérifie son SHA-256 et l'installe (l'application redémarre). En ligne de commande :
+<code>update --check</code> et <code>update</code>. Toutes les versions :
+<a href="{releases}">{releases}</a></p>
+
+<h2><a name="problems"></a>Problèmes courants</h2>
+<ul>
+<li><b>1130 « Host … is not allowed »</b> — MySQL n'accepte pas votre IP : utilisez un mode
+SSH.</li>
+<li><b>1045 « Access denied … (using password: NO) »</b> avec root — root ne se connecte que
+par le socket : choisissez <i>SSH + socket MySQL du serveur</i>.</li>
+<li><b>« Can't migrate from XUI to XUI »</b> — le fichier est une sauvegarde XUI.one : utilisez
+<a href="#xui-import">Importer une sauvegarde XUI</a>.</li>
+<li><b>Une URL importée ne s'ouvre pas</b> — redémarrez XUI ou enregistrez de nouveau le code
+d'accès dans le panneau pour que nginx le recharge.</li>
+</ul>
+
+<h2><a name="developer"></a>Développeur</h2>
+<p><b>{developer}</b><br>
+Telegram : <a href="{telegram}">{telegram}</a><br>
+E-mail : <a href="mailto:{email}">{email}</a><br>
+Code source et suggestions : <a href="{repository}">{repository}</a> ·
+<a href="{issues}">signaler un problème</a></p>
+<p>Licence MIT.</p>

@@ -1,0 +1,144 @@
+<h1>Guida di XUI DB Tool</h1>
+<p>Versione {version}. Per amministratori di pannelli IPTV (XUI.one, Xtream UI, StreamCreed,
+ZapX, Xtream Codes v2) che gestiscono database <b>di loro proprietà o che sono autorizzati a
+gestire</b>.</p>
+<p><b>Indice:</b>
+<a href="#start">Per iniziare</a> · <a href="#source">Origine dei dati</a> ·
+<a href="#ssh">Connessione SSH</a> · <a href="#export">Esporta</a> ·
+<a href="#maintenance">Manutenzione</a> · <a href="#templates">Modelli</a> ·
+<a href="#migrate">Migra / Ripristina</a> · <a href="#xui-migrate">Migrazione a XUI</a> ·
+<a href="#xui-import">Importare un backup XUI</a> · <a href="#safety">Sicurezza</a> ·
+<a href="#preferences">Tema e lingua</a> · <a href="#updates">Aggiornamenti</a> ·
+<a href="#problems">Problemi comuni</a> · <a href="#developer">Sviluppatore</a></p>
+
+<h2><a name="start"></a>Per iniziare</h2>
+<ol>
+<li>In <b>Origine dei dati</b> scegli un database live (MySQL/MariaDB) o un file di dump
+<code>.sql</code> e premi <b>Connetti / Carica</b>.</li>
+<li>L'app identifica il pannello ed elenca le tabelle con categoria, righe e colonne.
+Seleziona le tabelle su cui lavorare (<b>Tutti</b> / <b>Nessuno</b> / filtro).</li>
+<li>Usa le schede a destra. Il log in basso mostra cosa sta succedendo.</li>
+</ol>
+<p>I pulsanti <b>blu</b> sono le azioni principali; i pulsanti con bordo <b>rosso</b> scrivono
+su un server (importa, ripristina, migra, ripara) e chiedono sempre conferma.</p>
+
+<h2><a name="source"></a>Origine dei dati</h2>
+<ul>
+<li><b>MySQL / MariaDB live</b> — host, porta, utente, password e database (per esempio
+<code>xui</code>). Necessario per la manutenzione e per esportare il <code>CREATE TABLE</code>.</li>
+<li><b>File di dump</b> — legge un <code>.sql</code> o <code>.sql.gz</code> senza server.
+L'intero file viene caricato in memoria; per dump enormi usa la connessione live.</li>
+<li><b>Profili</b> — <i>Salva</i> memorizza la connessione (SSH compreso). La password viene
+salvata solo se selezioni <i>Salva la password nel profilo</i>.</li>
+</ul>
+
+<h2><a name="ssh"></a>Connessione SSH</h2>
+<p>Il MariaDB di XUI accetta solo connessioni dal server stesso (errore <b>1130</b> dal tuo
+PC). <b>Connetti tramite</b> offre tre modalità:</p>
+<ul>
+<li><b>Connessione MySQL diretta</b> — solo se il server accetta il tuo IP.</li>
+<li><b>SSH + socket MySQL del server</b> — la più semplice su XUI: accede come
+<code>mysql -uroot</code> sul server, <b>senza password MySQL</b>. Indica host, utente e
+password <i>SSH</i>; lascia vuota la password MySQL.</li>
+<li><b>Tunnel SSH verso MySQL TCP 127.0.0.1</b> — per utenti MySQL con password, come quello di
+<code>/home/xui/config/config.ini</code>.</li>
+</ul>
+<p>Le schede Modelli e Migra / Ripristina offrono la stessa scelta.</p>
+
+<h2><a name="export"></a>Esporta / Backup</h2>
+<p>Esporta le tabelle selezionate in <b>JSON</b>, <b>CSV</b> o <b>SQL</b> (con
+<code>CREATE TABLE</code> se l'origine è live). <i>Oscura le colonne di password/segreti</i>
+nasconde quei valori, utile per condividere le esportazioni. Esegui sempre un backup SQL
+prima di riparare, migrare o importare.</p>
+
+<h2><a name="maintenance"></a>Manutenzione</h2>
+<p>Esegue <b>Verifica</b>, <b>Ripara</b>, <b>Analizza</b> o <b>Ottimizza</b> sulle tabelle
+selezionate (solo con connessione live). <b>Verifica e ripara automaticamente</b> le controlla
+tutte e ripara solo quelle danneggiate.</p>
+
+<h2><a name="templates"></a>Modelli / Nuovo DB</h2>
+<p>Un modello è lo schema di un'installazione pulita di un pannello. <b>Registra .sql di
+base</b> lo salva una volta; poi <b>Crea database dal modello</b> crea un database <b>nuovo e
+vuoto</b> su un server (per esempio <code>xui_test</code>). Non usare il nome del database del
+pannello in produzione (<code>xui</code>): con <i>DROP</i> selezionato verrebbe sostituito —
+l'app rifiuta e chiede di digitare il nome per confermare.</p>
+
+<h2><a name="migrate"></a>Migra / Ripristina</h2>
+<ul>
+<li><b>Migra l'origine caricata</b> — copia le righe in un database di destinazione colonna per
+colonna (solo le colonne presenti su entrambi i lati). <i>Genera piano</i> mostra prima cosa
+verrà copiato; la <i>simulazione</i> scrive un <code>.sql</code> invece di scrivere sul
+server.</li>
+<li><b>Ripristina un dump</b> — esegue un <code>.sql</code> così com'è sul server di
+destinazione, creando eventualmente prima il database.</li>
+</ul>
+
+<h2><a name="xui-migrate"></a>Migrazione a XUI (pannelli più vecchi)</h2>
+<p>Per portare un pannello <b>Xtream UI, ZapX, StreamCreed o Xtream Codes v2</b> su XUI.one con
+la pagina <i>Database Migration</i> di XUI:</p>
+<ol>
+<li>Nella scheda <b>Migrazione XUI</b> scegli la modalità SSH, il server XUI e il vecchio dump.</li>
+<li><b>Verifica dump</b>, poi <b>Carica in <code>xui_migrate</code></b> (oppure scrivi uno script
+da eseguire sul server).</li>
+<li>Nel pannello XUI: <i>Database Migration</i> → <b>Migrate Database</b>.</li>
+</ol>
+<p>Viene scritto solo il database <code>xui_migrate</code>; il database <code>xui</code> in
+produzione non viene toccato. Le righe di log vengono ignorate perché XUI non le migra.</p>
+
+<h2><a name="xui-import"></a>Importare un backup XUI.one in un altro XUI</h2>
+<p>La pagina di migrazione di XUI rifiuta i backup XUI ("Can't migrate from XUI to XUI").
+Questa funzione importa direttamente nel database <code>xui</code>, via SSH:</p>
+<ul>
+<li><b>Ripristina</b> — scegli cosa portare: canali, film, serie, radio, bouquet, linee e
+dispositivi, rivenditori, EPG, liste di blocco. Vengono sostituiti solo i tipi scelti; il
+resto rimane com'è.</li>
+<li><b>Stream</b> — spostarli tutti sul server principale di questo XUI (ideale per un solo
+server) oppure aggiungere i vecchi load balancer.</li>
+<li><b>Sistema</b> — per impostazione predefinita il nuovo XUI mantiene i propri server,
+impostazioni e codici di accesso; ognuno può essere importato separatamente.</li>
+<li>Prima di qualsiasi modifica viene fatto un backup dell'attuale <code>xui</code> sul server
+(<code>/root/xui-before-import-*.sql.gz</code>) e tutto avviene in una transazione.</li>
+<li>Alla fine viene creato un <b>accesso di emergenza</b> (codice di accesso + utente admin) e
+vengono mostrati tutti gli URL del pannello. Salva la password ed elimina l'accesso dopo
+essere entrato.</li>
+</ul>
+<p>Usa sempre prima <b>Anteprima importazione XUI</b>.</p>
+
+<h2><a name="safety"></a>Sicurezza</h2>
+<ul>
+<li>Le credenziali vengono copiate così come sono; gli hash delle password non vengono mai
+decifrati.</li>
+<li>L'app rifiuta il <code>DROP</code> di un database con dati del pannello senza conferma
+scritta.</li>
+<li>Le password MySQL inviate via SSH passano in un file temporaneo protetto, mai sulla riga
+di comando.</li>
+</ul>
+
+<h2><a name="preferences"></a>Tema e lingua</h2>
+<p><b>Tema</b>: Automatico (segue il sistema), Chiaro o Scuro. <b>Lingua</b>: Português,
+English, Français, Español, Italiano. Entrambe le scelte vengono ricordate.</p>
+
+<h2><a name="updates"></a>Aggiornamenti</h2>
+<p><b>Aiuto → Cerca aggiornamenti</b> confronta la tua versione con l'ultima release su GitHub
+e mostra le novità. <b>Aggiorna ora</b> scarica la nuova versione, ne verifica lo SHA-256 e la
+installa (l'app si riavvia). Da riga di comando: <code>update --check</code> e
+<code>update</code>. Tutte le versioni: <a href="{releases}">{releases}</a></p>
+
+<h2><a name="problems"></a>Problemi comuni</h2>
+<ul>
+<li><b>1130 "Host … is not allowed"</b> — MySQL non accetta il tuo IP: usa una modalità SSH.</li>
+<li><b>1045 "Access denied … (using password: NO)"</b> con root — root accede solo dal socket:
+scegli <i>SSH + socket MySQL del server</i>.</li>
+<li><b>"Can't migrate from XUI to XUI"</b> — il file è un backup XUI.one: usa
+<a href="#xui-import">Importare un backup XUI</a>.</li>
+<li><b>Un URL importato non si apre</b> — riavvia XUI o salva di nuovo il codice di accesso nel
+pannello, così nginx lo ricarica.</li>
+</ul>
+
+<h2><a name="developer"></a>Sviluppatore</h2>
+<p><b>{developer}</b><br>
+Telegram: <a href="{telegram}">{telegram}</a><br>
+Email: <a href="mailto:{email}">{email}</a><br>
+Codice sorgente e suggerimenti: <a href="{repository}">{repository}</a> ·
+<a href="{issues}">segnala un problema</a></p>
+<p>Licenza MIT.</p>

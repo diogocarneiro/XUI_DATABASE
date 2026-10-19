@@ -37,7 +37,7 @@ version = { attr = "xdbtool.__version__" }
 include = ["xdbtool*"]
 
 [tool.setuptools.package-data]
-xdbtool = ["data/*.json", "i18n/locales/*.json"]
+xdbtool = ["data/*.json", "i18n/locales/*.json", "help/*.html"]
 
 [tool.ruff]
 line-length = 100

@@ -45,7 +45,11 @@ MySQL/MariaDB connection or from an offline `mysqldump` `.sql` file.
 - **Safety** — refuses to `DROP` a database holding panel data unless confirmed.
 - **GUI** (PySide6) **and** a scriptable **CLI**; **Português** (default),
   English, Français, Español, Italiano; light / dark / automatic theme;
-  in-app updates from GitHub Releases.
+  in-app updates from GitHub Releases; a built-in **user guide** (*Ajuda → Guia
+  de utilização*, F1) in every language.
+
+**Developer:** Diogo Carneiro — Telegram [t.me/diogoncarneiro](https://t.me/diogoncarneiro)
+· [issues & suggestions](https://github.com/diogocarneiro/XUI_DATABASE/issues).
 
 ## Install
 

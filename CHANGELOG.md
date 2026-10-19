@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 ### Added
+- **Modern design with Light / Dark / Automatic themes** (menu *Tema*, saved in
+  `settings.json`; Automatic follows the OS live via `colorSchemeChanged`).
+  New `gui/theme.py`: colour tokens, generated QSS (cards, underline tabs,
+  rounded inputs with focus ring, slim scrollbars, styled menus/tooltips) and
+  per-theme SVG icons; Fusion style + matching palette. Header with app name
+  and version; resizable splitter between tables and actions; primary (blue)
+  and danger (red) button roles; status pill coloured by state; monospaced
+  log; alternating table rows. `tests/test_theme.py` checks WCAG contrast.
 - **Translations**: Portuguese (default), English, French, Spanish and Italian.
   GUI menu *Idioma / Language* (saved in `settings.json`, window rebuilt on
   switch); CLI `--lang` (CLI default stays English). New `xdbtool/i18n` package

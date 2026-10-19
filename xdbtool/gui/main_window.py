@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QSplitter,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -37,6 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import __version__
 from ..core import profiles, templates, xui_import, xui_migrate
 from ..core.config import ConnectionProfile, load_store, save_settings, save_store
 from ..core.dump_source import SqlDumpSource
@@ -49,6 +51,7 @@ from ..core.source import DataSource
 from ..core.ssh_remote import SshConfig
 from ..core.templates import create_from_template, register_template
 from ..i18n import LANGUAGES, _, get_language, set_language
+from . import theme
 from .ssh_fields import SshFields
 from .workers import JobRunner
 
@@ -70,13 +73,31 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget()
         root = QVBoxLayout(central)
+        root.setContentsMargins(16, 10, 16, 12)
+        root.setSpacing(12)
+        root.addWidget(self._build_header())
         root.addWidget(self._build_source_box())
-        body = QHBoxLayout()
-        body.addWidget(self._build_tables_box(), 3)
-        body.addWidget(self._build_actions_box(), 2)
-        root.addLayout(body, 1)
+        body = QSplitter(Qt.Horizontal)
+        body.setChildrenCollapsible(False)
+        body.setHandleWidth(10)
+        body.addWidget(self._build_tables_box())
+        body.addWidget(self._build_actions_box())
+        body.setStretchFactor(0, 2)
+        body.setStretchFactor(1, 3)
+        body.setSizes([560, 840])
+        root.addWidget(body, 1)
         root.addWidget(self._build_progress_box())
         self.setCentralWidget(central)
+
+        theme_menu = self.menuBar().addMenu(_("Theme"))
+        theme_group = QActionGroup(self)
+        for mode, label in (("auto", _("Automatic (system)")), ("light", _("Light")),
+                            ("dark", _("Dark"))):
+            act = QAction(label, self, checkable=True)
+            act.setChecked(mode == theme.current_mode())
+            act.triggered.connect(lambda _c=False, m=mode: self._change_theme(m))
+            theme_group.addAction(act)
+            theme_menu.addAction(act)
 
         lang_menu = self.menuBar().addMenu(_("Language"))
         group = QActionGroup(self)
@@ -89,6 +110,38 @@ class MainWindow(QMainWindow):
         about = QAction(_("About"), self)
         about.triggered.connect(self._about)
         self.menuBar().addMenu(_("Help")).addAction(about)
+
+    def _build_header(self) -> QWidget:
+        header = QWidget()
+        row = QHBoxLayout(header)
+        row.setContentsMargins(2, 0, 2, 0)
+        title = QLabel("XUI DB Tool")
+        title.setObjectName("appTitle")
+        subtitle = QLabel(_("Inspect, back up, repair and migrate panel databases"))
+        subtitle.setObjectName("appSubtitle")
+        version = QLabel(f"v{__version__}")
+        version.setProperty("role", "muted")
+        row.addWidget(title)
+        row.addSpacing(10)
+        row.addWidget(subtitle, 1)
+        row.addWidget(version)
+        return header
+
+    def _change_theme(self, mode: str) -> None:
+        save_settings(theme=mode)
+        theme.apply_theme(QApplication.instance(), mode)
+
+    @staticmethod
+    def _role(button: QPushButton, role: str) -> QPushButton:
+        """Tag a button as "primary" (main action) or "danger" (writes to a server)."""
+        button.setProperty("role", role)
+        return button
+
+    def _set_status(self, text: str, state: str = "") -> None:
+        self.status_lbl.setText(text)
+        self.status_lbl.setProperty("state", state)
+        self.status_lbl.style().unpolish(self.status_lbl)
+        self.status_lbl.style().polish(self.status_lbl)
 
     def _change_language(self, code: str) -> None:
         """Save the choice and rebuild the window in the new language."""
@@ -124,10 +177,10 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.source_stack)
 
         row = QHBoxLayout()
-        self.connect_btn = QPushButton(_("Connect / Load"))
+        self.connect_btn = self._role(QPushButton(_("Connect / Load")), "primary")
         self.connect_btn.clicked.connect(self._connect_source)
         self.status_lbl = QLabel(_("Not connected."))
-        self.status_lbl.setStyleSheet("color: #888;")
+        self.status_lbl.setObjectName("status")
         row.addWidget(self.connect_btn)
         row.addWidget(self.status_lbl, 1)
         outer.addLayout(row)
@@ -205,6 +258,8 @@ class MainWindow(QMainWindow):
             [_("Table"), _("Category"), _("Rows"), _("Columns")])
         self.table_widget.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table_widget.verticalHeader().setVisible(False)
+        self.table_widget.setAlternatingRowColors(True)
+        self.table_widget.setShowGrid(False)
         self.table_widget.setEditTriggers(QTableWidget.NoEditTriggers)
         v.addWidget(self.table_widget)
         return box
@@ -232,7 +287,7 @@ class MainWindow(QMainWindow):
         self.redact_cb = QCheckBox(_("Redact password/secret-like columns"))
         self.schema_cb = QCheckBox(_("Include CREATE TABLE (SQL format, live source)"))
         self.schema_cb.setChecked(True)
-        self.export_btn = QPushButton(_("Export selected tables"))
+        self.export_btn = self._role(QPushButton(_("Export selected tables")), "primary")
         self.export_btn.clicked.connect(self._do_export)
 
         form.addRow(_("Format:"), self.export_fmt)
@@ -249,9 +304,9 @@ class MainWindow(QMainWindow):
         for op, label in (("check", _("Check")), ("repair", _("Repair")),
                           ("analyze", _("Analyze")), ("optimize", _("Optimize"))):
             self.maint_op.addItem(label, op)
-        run_btn = QPushButton(_("Run on selected tables"))
+        run_btn = self._role(QPushButton(_("Run on selected tables")), "primary")
         run_btn.clicked.connect(self._do_maintenance)
-        auto_btn = QPushButton(_("Check & auto-repair broken tables"))
+        auto_btn = self._role(QPushButton(_("Check & auto-repair broken tables")), "danger")
         auto_btn.clicked.connect(self._do_auto_repair)
         note = QLabel(_("Maintenance requires a live MySQL/MariaDB connection. Always back up "
                         "(Export → SQL) before repairing."))
@@ -284,7 +339,7 @@ class MainWindow(QMainWindow):
         self.t_db = QLineEdit()
         self.t_db.setPlaceholderText(_("new database name, e.g. xui_test"))
         self.t_drop = QCheckBox(_("DROP database first if it already exists"))
-        create_btn = QPushButton(_("Create database from template"))
+        create_btn = self._role(QPushButton(_("Create database from template")), "primary")
         create_btn.clicked.connect(self._do_init_db)
 
         form.addRow(_("Template:"), self._wrap(tmpl_row))
@@ -444,7 +499,7 @@ class MainWindow(QMainWindow):
         self.m_ignore.setChecked(True)
         plan_btn = QPushButton(_("Build plan (preview in log)"))
         plan_btn.clicked.connect(self._do_build_plan)
-        mig_btn = QPushButton(_("Run migration → inject into server"))
+        mig_btn = self._role(QPushButton(_("Run migration → inject into server")), "danger")
         mig_btn.clicked.connect(lambda: self._do_migrate(dry_run=False))
         sql_btn = QPushButton(_("Dry run → write migration .sql"))
         sql_btn.clicked.connect(lambda: self._do_migrate(dry_run=True))
@@ -464,7 +519,7 @@ class MainWindow(QMainWindow):
         dump_row.addWidget(dump_browse)
         self.m_create = QCheckBox(_("Create the target database first"))
         self.m_drop = QCheckBox(_("DROP it first if it exists"))
-        restore_btn = QPushButton(_("Restore dump → inject into server"))
+        restore_btn = self._role(QPushButton(_("Restore dump → inject into server")), "danger")
         restore_btn.clicked.connect(self._do_restore)
         form.addRow(_("Dump file:"), self._wrap(dump_row))
         form.addRow("", self.m_create)
@@ -692,7 +747,7 @@ class MainWindow(QMainWindow):
 
         check_btn = QPushButton(_("Check dump"))
         check_btn.clicked.connect(self._do_xui_check)
-        load_btn = QPushButton(_("Load into `{db}` on server", db=db))
+        load_btn = self._role(QPushButton(_("Load into `{db}` on server", db=db)), "primary")
         load_btn.clicked.connect(self._do_xui_stage)
         script_btn = QPushButton(_("Write script to run on the server…"))
         script_btn.clicked.connect(self._do_xui_script)
@@ -742,12 +797,13 @@ class MainWindow(QMainWindow):
         form.addRow("", self.xi_rescue)
         preview_btn = QPushButton(_("Preview XUI import"))
         preview_btn.clicked.connect(lambda: self._do_xui_import(plan_only=True))
-        import_btn = QPushButton(_("Import backup into `xui` on server"))
+        import_btn = self._role(QPushButton(_("Import backup into `xui` on server")), "danger")
         import_btn.clicked.connect(lambda: self._do_xui_import(plan_only=False))
         form.addRow(preview_btn)
         form.addRow(import_btn)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # let long text wrap
         scroll.setWidget(w)
         return scroll
 
@@ -952,6 +1008,7 @@ class MainWindow(QMainWindow):
         self.progress = QProgressBar()
         self.progress.setValue(0)
         self.log = QPlainTextEdit()
+        self.log.setObjectName("log")
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(5000)
         self.log.setFixedHeight(160)
@@ -1094,6 +1151,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, _("Connection failed"), str(exc))
             self._log(_("ERROR: {error}", error=exc))
+            self._set_status(_("Not connected."), "error")
             return
         self.source = src
         self._log(_("Connected: {label}", label=src.label))
@@ -1108,10 +1166,10 @@ class MainWindow(QMainWindow):
 
         info = self.source.server_info()
         extra = info.get("server_version", info.get("source", ""))
-        self.status_lbl.setText(_(
+        self._set_status(_(
             "Panel: {panel} ({confidence:.0%} conf.)  •  {count} tables  •  {extra}",
-            panel=det.profile.name, confidence=det.confidence, count=len(tables), extra=extra))
-        self.status_lbl.setStyleSheet("color: #2a7;")
+            panel=det.profile.name, confidence=det.confidence, count=len(tables), extra=extra),
+            "ok")
 
         self.table_widget.setRowCount(len(tables))
         for r, t in enumerate(tables):

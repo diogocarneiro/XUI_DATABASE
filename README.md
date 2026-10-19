@@ -230,6 +230,14 @@ Admin/reseller accounts (`users`) come from the backup, so log in with the old
 panel's admin credentials afterwards. Restart XUI on the server so it reloads its
 caches. The same is in the GUI **XUI Migration** tab (*Import an XUI.one backup*).
 
+## Themes
+
+Menu *Tema / Theme*: **Automatic** (default — follows the operating system's
+light/dark setting live), **Light** or **Dark**. The choice is remembered. Main
+actions are blue; actions that write to a server (import, restore, migrate,
+repair) are red. Theme colours live in `xdbtool/gui/theme.py` (`TOKENS`) and are
+checked for WCAG contrast by the tests.
+
 ## Languages
 
 The interface is available in **Português** (default), **English**, **Français**,
@@ -258,7 +266,7 @@ xdbtool/
     ssh_remote.py   # SSH/SFTP helper: run the server's mysql client remotely
     xui_import.py   # XUI.one → XUI.one import (schema-aware, keeps system tables)
     config.py       # connection profiles (user config dir)
-  gui/            # PySide6 interface
+  gui/            # PySide6 interface (theme.py: light/dark/auto tokens + stylesheet)
   i18n/           # translations: _() helper, locales/{pt,fr,es,it}.json, extract.py
   __main__.py     # CLI + GUI entry point
 tests/            # pytest suite (runs fully offline)

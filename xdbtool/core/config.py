@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Diogo Carneiro <diogoncarneiro@outlook.com>
+# XUI DB Tool — https://github.com/diogocarneiro/XUI_DATABASE
 """Persist connection profiles and app settings in the user's config directory.
 
 Passwords are stored only if the user opts in; by default they are left blank and

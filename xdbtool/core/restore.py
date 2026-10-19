@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Diogo Carneiro <diogoncarneiro@outlook.com>
+# XUI DB Tool — https://github.com/diogocarneiro/XUI_DATABASE
 """Restore / import a ``.sql`` dump directly into a live MySQL/MariaDB server.
 
 This executes the dump's statements as-is (schema + data), optionally creating the
@@ -9,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .dump_source import _iter_statements
+from .dump_source import _iter_statements, read_sql_text
 from .logger import get_logger
 
 log = get_logger(__name__)
@@ -41,7 +44,7 @@ def restore_dump(
     # Connect without pre-selecting a schema when we must create it first.
     cfg.database = "" if create else (database or cfg.database)
 
-    sql_text = dump_path.read_text(encoding="utf-8", errors="replace")
+    sql_text = read_sql_text(dump_path)
     statements = [s for s in _iter_statements(sql_text) if s.strip()]
 
     with MySQLSource(cfg) as target:

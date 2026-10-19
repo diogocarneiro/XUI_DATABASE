@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Diogo Carneiro <diogoncarneiro@outlook.com>
+# XUI DB Tool — https://github.com/diogocarneiro/XUI_DATABASE
 """Export tables from any :class:`DataSource` to JSON, CSV or SQL files."""
 
 from __future__ import annotations

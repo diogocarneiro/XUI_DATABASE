@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Diogo Carneiro <diogoncarneiro@outlook.com>
+# XUI DB Tool — https://github.com/diogocarneiro/XUI_DATABASE
 """Entry point: launch the GUI, or run headless export/migrate/maintenance.
 
     xui-db-tool                 # launch GUI
@@ -6,6 +9,7 @@
     xui-db-tool export <args>   # export tables to json/csv/sql
     xui-db-tool maint  <args>   # check/repair/analyze/optimize (live MySQL)
     xui-db-tool migrate <args>  # migrate between databases
+    xui-db-tool xui-migrate <dump> <args>  # stage an old panel DB as `xui_migrate`
 
 Run ``xui-db-tool <command> -h`` for each command's options.
 """
@@ -185,6 +189,51 @@ def cmd_restore(args) -> int:
     return 0
 
 
+def cmd_xui_migrate(args) -> int:
+    from .core.mysql_source import ConnectionConfig
+    from .core.xui_migrate import XuiMigrateError, load_dump, stage_live, write_script
+
+    try:
+        prepared = load_dump(args.dump_file, skip_logs=not args.keep_logs, force=args.force)
+    except XuiMigrateError as exc:
+        print(f"Cannot stage this dump: {exc}", file=sys.stderr)
+        return 2
+    print(f"Dump : {Path(args.dump_file).name}")
+    for line in prepared.summary_lines():
+        print(f"  {line}")
+    if args.check_only:
+        return 0
+    if args.sql_out:
+        out = write_script(prepared, args.sql_out, database=args.database,
+                           drop_existing=args.drop, grant_to=args.grant)
+        print(f"Wrote {out}. On the XUI server run:  mysql -u root -p < {out.name}")
+        return 0
+    if not args.target_host:
+        print("--target-host is required unless --sql-out or --check-only is used.",
+              file=sys.stderr)
+        return 2
+
+    cfg = ConnectionConfig(
+        host=args.target_host, port=args.target_port, user=args.target_user,
+        password=args.target_password,
+    )
+    try:
+        result = stage_live(cfg, prepared, database=args.database, drop_existing=args.drop,
+                            grant_to=args.grant, progress=_cli_progress)
+    except XuiMigrateError as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        return 2
+    print(file=sys.stderr)
+    print(f"Loaded {result['tables']} tables into `{result['database']}` "
+          f"({result['statements']} statements).")
+    for table, n in result["row_counts"].items():
+        print(f"  {table:18} {n:>8} rows")
+    if not result["xui_server"]:
+        print("Note: no `xui` database on this server — is it the XUI.one host?")
+    print("Next: open the XUI panel → Database Migration → 'Migrate Database'.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="xui-db-tool", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -254,6 +303,29 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--create", action="store_true", help="CREATE the target database first")
     pr.add_argument("--drop", action="store_true", help="DROP the database first if it exists")
     pr.set_defaults(func=cmd_restore)
+
+    px = sub.add_parser(
+        "xui-migrate",
+        help="Stage an Xtream UI / ZapX / StreamCreed / XC v2 dump as `xui_migrate`",
+        description="Load an old panel dump into the `xui_migrate` database on the XUI.one "
+                    "server, ready for XUI's own 'Database Migration' page.",
+    )
+    px.add_argument("dump_file", help="Old panel dump (.sql or .sql.gz)")
+    px.add_argument("--target-host", help="XUI server MySQL host (use an SSH tunnel if local-only)")
+    px.add_argument("--target-port", type=int, default=3306)
+    px.add_argument("--target-user", default="root")
+    px.add_argument("--target-password", default="")
+    px.add_argument("--database", default="xui_migrate", help="Schema name (default: xui_migrate)")
+    px.add_argument("--drop", action="store_true", help="Replace an existing xui_migrate database")
+    px.add_argument("--keep-logs", action="store_true",
+                    help="Also load log table rows (XUI ignores them; skipped by default)")
+    px.add_argument("--grant", metavar="USER@HOST",
+                    help="GRANT ALL on xui_migrate.* to XUI's MySQL user")
+    px.add_argument("--force", action="store_true",
+                    help="Load even if the dump does not look like an XC v2-family DB")
+    px.add_argument("--sql-out", help="Write a script to run on the server instead of loading")
+    px.add_argument("--check-only", action="store_true", help="Analyse the dump and stop")
+    px.set_defaults(func=cmd_xui_migrate)
     return p
 
 

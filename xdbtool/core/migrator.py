@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Diogo Carneiro <diogoncarneiro@outlook.com>
+# XUI DB Tool — https://github.com/diogocarneiro/XUI_DATABASE
 """Migration engine: move data from a source panel DB into a target MySQL DB.
 
 Strategy (schema-agnostic): for each table that exists on both sides, map columns

@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 ### Added
+- **XUI.one migration staging**: `xui-migrate` CLI command and an **XUI
+  Migration** GUI tab load an old Xtream UI / ZapX / StreamCreed / Xtream Codes v2
+  dump into the `xui_migrate` database, ready for XUI's *Database Migration*
+  page. Strips the dump's `CREATE DATABASE`/`USE` directives, skips log rows by
+  default, relaxes `sql_mode` for MySQL 5.x dumps, refuses XUI.one dumps, can
+  write a script to run on the server, and optionally grants XUI's DB user.
+- `core/xui_migrate.py`; `.sql.gz` dump support (`read_sql_text`);
+  `MySQLSource.execute`.
+- Copyright header on every source file, enforced by `tests/test_copyright.py`.
 - **Direct server injection**: `restore` CLI command and a GUI **Migrate /
   Restore** tab that write straight to a live MySQL server — restore a `.sql`
   dump as-is (optionally creating the target DB) or run a live column-mapped

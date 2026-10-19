@@ -9,7 +9,7 @@ description = "GUI tool to inspect, back up, repair and migrate XUI / Xtream-UI 
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "diogoncarneiro" }]
+authors = [{ name = "Diogo Carneiro", email = "diogoncarneiro@outlook.com" }]
 keywords = ["xui", "xtream-ui", "streamcreed", "iptv", "mysql", "migration", "backup"]
 dependencies = [
     "PySide6>=6.7,<6.9",

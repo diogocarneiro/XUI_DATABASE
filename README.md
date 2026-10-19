@@ -125,6 +125,38 @@ is what `info` uses to report the *closest template* for an unknown database.
 Always take a backup (`export --format sql`) **before** running `repair` or a live
 migration.
 
+### XUI.one migration — stage the `xui_migrate` database
+
+XUI.one's **Database Migration** page converts an old **Xtream UI, ZapX,
+StreamCreed or Xtream Codes v2** database itself, but it reads it from a schema
+called `xui_migrate` on the XUI server. `xui-migrate` puts your old dump there:
+
+- removes the dump's own `CREATE DATABASE` / `USE` lines, so everything lands in
+  `xui_migrate` and the live `xui` database is never touched;
+- skips log table rows by default (XUI does not migrate logs) — `--keep-logs` to
+  load them;
+- relaxes `sql_mode` so MySQL 5.x dumps load on XUI's MariaDB;
+- accepts `.sql` and `.sql.gz`, and refuses dumps that are already XUI.one
+  (`--force` to override).
+
+```bash
+# 1. Check the dump
+python -m xdbtool xui-migrate old_panel.sql.gz --check-only
+
+# 2a. Load it straight into the XUI server. XUI's MySQL usually listens only on
+#     localhost, so open an SSH tunnel first:  ssh -L 3307:127.0.0.1:3306 root@xui-server
+python -m xdbtool xui-migrate old_panel.sql.gz --target-host 127.0.0.1 --target-port 3307 \
+    --target-user root --target-password secret --drop
+
+# 2b. …or write a script, copy it to the server and run it there
+python -m xdbtool xui-migrate old_panel.sql.gz --sql-out xui_migrate.sql --drop
+#     (on the server)  mysql -u root -p < xui_migrate.sql
+```
+
+Then open the XUI panel → **Database Migration** → **Migrate Database**. If XUI's
+own MySQL user cannot read `xui_migrate`, add `--grant user@localhost` (the user is
+in XUI's `config.ini`). The same steps are in the GUI under **XUI Migration**.
+
 ## Project layout
 
 ```
@@ -137,6 +169,8 @@ xdbtool/
     exporter.py     # JSON / CSV / SQL export
     repair.py       # CHECK / REPAIR / ANALYZE / OPTIMIZE
     migrator.py     # column-level migration engine
+    restore.py      # execute a .sql dump on a live server
+    xui_migrate.py  # stage an old panel dump as `xui_migrate` for XUI.one
     config.py       # connection profiles (user config dir)
   gui/            # PySide6 interface
   __main__.py     # CLI + GUI entry point
@@ -161,7 +195,7 @@ pyinstaller --noconfirm --windowed --name XUI-DB-Tool -p . xdbtool/__main__.py
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE) — Copyright (c) 2026 Diogo Carneiro.
 
 ## Disclaimer
 

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Diogo Carneiro <diogoncarneiro@outlook.com>
+# XUI DB Tool — https://github.com/diogocarneiro/XUI_DATABASE
 """Panel schema templates: register base ``.sql`` schemas and recreate fresh DBs.
 
 A *template* is a vanilla (freshly-installed) panel database dump. Templates let

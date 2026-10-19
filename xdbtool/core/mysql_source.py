@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Diogo Carneiro <diogoncarneiro@outlook.com>
+# XUI DB Tool — https://github.com/diogocarneiro/XUI_DATABASE
 """Live MySQL/MariaDB data source backed by PyMySQL."""
 
 from __future__ import annotations
@@ -203,6 +206,12 @@ class MySQLSource(DataSource):
             cur.execute(f"USE {_quote_ident(name)}")
         self.config.database = name
         self.label = f"{self.config.user}@{self.config.host}:{self.config.port}/{name}"
+
+    def execute(self, sql: str, args=None) -> list[dict]:
+        """Run one statement (with PyMySQL-escaped ``args``) and return its rows."""
+        with self._cursor() as cur:
+            cur.execute(sql, args)
+            return list(cur.fetchall())
 
     def execute_script(self, statements, progress=None) -> int:
         """Execute an iterable of SQL statements in order. Returns count run."""

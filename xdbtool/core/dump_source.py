@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Diogo Carneiro <diogoncarneiro@outlook.com>
+# XUI DB Tool — https://github.com/diogocarneiro/XUI_DATABASE
 """Offline data source: read tables and rows from a ``mysqldump`` ``.sql`` file.
 
 This handles the common output of ``mysqldump`` (both extended and one-row-per-
@@ -30,6 +33,19 @@ _NON_COLUMN = re.compile(
     r"^\s*(PRIMARY\s+KEY|UNIQUE\s+KEY|UNIQUE|KEY|INDEX|CONSTRAINT|FOREIGN\s+KEY|FULLTEXT|SPATIAL)\b",
     re.I,
 )
+
+
+def read_sql_text(path: str | Path, encoding: str = "utf-8") -> str:
+    """Read a ``.sql`` dump, transparently decompressing ``.gz`` files."""
+    path = Path(path)
+    with path.open("rb") as fh:
+        gz = fh.read(2) == b"\x1f\x8b"
+    if gz:
+        import gzip
+
+        with gzip.open(path, "rt", encoding=encoding, errors="replace") as fh:
+            return fh.read()
+    return path.read_text(encoding=encoding, errors="replace")
 
 
 def _iter_statements(text: str) -> Iterator[str]:
@@ -204,7 +220,7 @@ class SqlDumpSource(DataSource):
         if not self.path.is_file():
             raise SourceError(f"Dump file not found: {self.path}")
         try:
-            text = self.path.read_text(encoding=self.encoding, errors="replace")
+            text = read_sql_text(self.path, self.encoding)
         except OSError as exc:
             raise SourceError(f"Could not read dump: {exc}") from exc
 

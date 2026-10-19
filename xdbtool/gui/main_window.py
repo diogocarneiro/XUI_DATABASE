@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Diogo Carneiro <diogoncarneiro@outlook.com>
+# XUI DB Tool — https://github.com/diogocarneiro/XUI_DATABASE
 """Main application window."""
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core import profiles, templates
+from ..core import profiles, templates, xui_migrate
 from ..core.config import ConnectionProfile, load_store, save_store
 from ..core.dump_source import SqlDumpSource
 from ..core.exporter import ExportOptions, export_tables
@@ -177,6 +180,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_maint_tab(), "Maintenance")
         tabs.addTab(self._build_templates_tab(), "Templates / New DB")
         tabs.addTab(self._build_migrate_tab(), "Migrate / Restore")
+        tabs.addTab(self._build_xui_migrate_tab(), "XUI Migration")
         return tabs
 
     def _build_export_tab(self) -> QWidget:
@@ -486,6 +490,146 @@ class MainWindow(QMainWindow):
 
         self._start(job, done_msg="Restore finished.")
 
+    def _build_xui_migrate_tab(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+        intro = QLabel(
+            "Stage an old <b>Xtream UI / ZapX / StreamCreed / Xtream Codes v2</b> dump as the "
+            f"<code>{xui_migrate.MIGRATE_DB}</code> database on the XUI.one server. Then open the "
+            "XUI panel → <i>Database Migration</i> → <b>Migrate Database</b>."
+        )
+        intro.setWordWrap(True)
+        form.addRow(intro)
+        self.x_host = QLineEdit("127.0.0.1")
+        self.x_host.setToolTip("XUI's MySQL is usually local-only: use an SSH tunnel "
+                               "(ssh -L 3306:127.0.0.1:3306 root@xui-server) or write a script.")
+        self.x_port = QSpinBox()
+        self.x_port.setRange(1, 65535)
+        self.x_port.setValue(3306)
+        self.x_user = QLineEdit("root")
+        self.x_pass = QLineEdit()
+        self.x_pass.setEchoMode(QLineEdit.Password)
+        form.addRow(QLabel("<b>XUI server</b> (MySQL/MariaDB)"))
+        form.addRow("Host:", self.x_host)
+        form.addRow("Port:", self.x_port)
+        form.addRow("User:", self.x_user)
+        form.addRow("Password:", self.x_pass)
+
+        form.addRow(QLabel("<b>Old panel dump</b>"))
+        self.x_dump = QLineEdit()
+        browse = QPushButton("…")
+        browse.clicked.connect(self._browse_xui_dump)
+        row = QHBoxLayout()
+        row.addWidget(self.x_dump, 1)
+        row.addWidget(browse)
+        form.addRow("Dump file:", self._wrap(row))
+        self.x_drop = QCheckBox(f"Replace an existing `{xui_migrate.MIGRATE_DB}` database")
+        self.x_drop.setChecked(True)
+        self.x_skip_logs = QCheckBox("Skip log table rows (XUI does not migrate logs)")
+        self.x_skip_logs.setChecked(True)
+        self.x_force = QCheckBox("Load even if it does not look like an XC v2-family dump")
+        self.x_grant = QLineEdit()
+        self.x_grant.setPlaceholderText("optional: XUI MySQL user, e.g. user@localhost")
+        form.addRow("", self.x_drop)
+        form.addRow("", self.x_skip_logs)
+        form.addRow("", self.x_force)
+        form.addRow("Grant to:", self.x_grant)
+
+        check_btn = QPushButton("Check dump")
+        check_btn.clicked.connect(self._do_xui_check)
+        load_btn = QPushButton(f"Load into `{xui_migrate.MIGRATE_DB}` on server")
+        load_btn.clicked.connect(self._do_xui_stage)
+        script_btn = QPushButton("Write script to run on the server…")
+        script_btn.clicked.connect(self._do_xui_script)
+        form.addRow(check_btn)
+        form.addRow(load_btn)
+        form.addRow(script_btn)
+        return w
+
+    def _browse_xui_dump(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select old panel dump", "", "SQL dumps (*.sql *.gz);;All files (*)"
+        )
+        if path:
+            self.x_dump.setText(path)
+
+    def _xui_prepare_job(self):
+        """Validate the form; return a function that loads+prepares the dump, or None."""
+        if self.runner.busy:
+            QMessageBox.information(self, "Busy", "Another operation is still running.")
+            return None
+        dump = self.x_dump.text().strip()
+        if not dump:
+            QMessageBox.warning(self, "No dump", "Select the old panel's .sql dump.")
+            return None
+        skip_logs, force = self.x_skip_logs.isChecked(), self.x_force.isChecked()
+
+        def prepare(message):
+            message(f"Analysing {Path(dump).name}…")
+            prepared = xui_migrate.load_dump(dump, skip_logs=skip_logs, force=force)
+            for line in prepared.summary_lines():
+                message(f"  {line}")
+            return prepared
+
+        return prepare
+
+    def _do_xui_check(self) -> None:
+        prepare = self._xui_prepare_job()
+        if prepare:
+            self._start(lambda progress, message: prepare(message), done_msg="Dump looks OK.")
+
+    def _do_xui_script(self) -> None:
+        prepare = self._xui_prepare_job()
+        if not prepare:
+            return
+        out, _ = QFileDialog.getSaveFileName(self, "Save xui_migrate script",
+                                             "xui_migrate.sql", "SQL (*.sql)")
+        if not out:
+            return
+        drop, grant = self.x_drop.isChecked(), self.x_grant.text().strip() or None
+
+        def job(progress, message):
+            path = xui_migrate.write_script(prepare(message), out,
+                                            drop_existing=drop, grant_to=grant)
+            message(f"Copy {path.name} to the XUI server and run: "
+                    f"mysql -u root -p < {path.name}")
+            return path
+
+        self._start(job, done_msg="Script written.")
+
+    def _do_xui_stage(self) -> None:
+        prepare = self._xui_prepare_job()
+        if not prepare:
+            return
+        cfg = ConnectionConfig(
+            host=self.x_host.text().strip(), port=self.x_port.value(),
+            user=self.x_user.text().strip(), password=self.x_pass.text(),
+        )
+        drop, grant = self.x_drop.isChecked(), self.x_grant.text().strip() or None
+        db = xui_migrate.MIGRATE_DB
+        warn = f"\nThe existing `{db}` will be DROPPED." if drop else ""
+        if QMessageBox.question(
+            self, "Confirm",
+            f"Load '{Path(self.x_dump.text()).name}' into `{db}` on {cfg.host}?{warn}\n"
+            "Only this database is written; the live `xui` database is not touched.",
+        ) != QMessageBox.Yes:
+            return
+
+        def job(progress, message):
+            prepared = prepare(message)
+            message(f"Loading into `{db}` on {cfg.host}…")
+            result = xui_migrate.stage_live(cfg, prepared, drop_existing=drop,
+                                            grant_to=grant, progress=progress)
+            message(f"Loaded {result['tables']} tables ({result['statements']} statements).")
+            for table, n in result["row_counts"].items():
+                message(f"  {table}: {n} rows")
+            if not result["xui_server"]:
+                message("Note: no `xui` database on this server — is it the XUI.one host?")
+            message("Next: XUI panel → Database Migration → Migrate Database.")
+            return result
+
+        self._start(job, done_msg=f"`{db}` is ready for XUI's migration page.")
+
     def _build_progress_box(self) -> QWidget:
         box = QWidget()
         v = QVBoxLayout(box)
@@ -746,6 +890,7 @@ class MainWindow(QMainWindow):
             "XUI DB Tool\n\nInspect, back up, repair and migrate XUI / Xtream-UI /\n"
             "StreamCreed panel databases you own or are authorised to manage.\n\n"
             "Credentials are migrated verbatim; hashes are never decrypted.\n\n"
+            "Copyright © 2026 Diogo Carneiro <diogoncarneiro@outlook.com>\n"
             "MIT License.",
         )
 

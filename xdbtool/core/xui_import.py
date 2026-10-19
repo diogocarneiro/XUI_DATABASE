@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import gzip
 import shlex
+import string
 import tempfile
 import time
 from collections.abc import Callable, Iterable, Iterator
@@ -35,6 +36,7 @@ from .exporter import _sql_literal
 from .logger import get_logger
 from .migrator import MigrationPlan, build_plan
 from .mysql_source import _quote_ident
+from .passwords import random_secret, sha512_crypt
 from .source import ColumnInfo, DataSource, TableInfo
 from .xui_migrate import SESSION_PREAMBLE
 
@@ -42,11 +44,15 @@ log = get_logger(__name__)
 
 XUI_DB = "xui"
 
-# Server-specific configuration: replacing these would point the new panel at the
-# old server's IP, settings and admin URL (access code).
-SYSTEM_TABLES = frozenset({
-    "servers", "settings", "access_codes", "crontab", "migrations", "queue", "signals",
-})
+# Server-specific configuration the user may choose to bring over, one by one.
+# Replacing them gives the new panel the old admin URLs (access_codes), settings
+# and server list/IPs (servers) — see :func:`build_import`.
+OPTIONAL_SYSTEM_TABLES = ("access_codes", "settings", "servers")
+# Runtime state of the target installation: always kept.
+RUNTIME_TABLES = frozenset({"crontab", "migrations", "queue", "signals"})
+SYSTEM_TABLES = frozenset(OPTIONAL_SYSTEM_TABLES) | RUNTIME_TABLES
+ACCESS_CODE_TYPES = {0: "admin", 1: "reseller", 2: "ministra"}
+XUI_TOOLS = "/home/xui/tools"
 LOG_TABLES = frozenset({
     "lines_logs", "lines_activity", "lines_live", "lines_divergence", "login_logs",
     "mag_logs", "mag_events", "panel_logs", "panel_stats", "streams_logs", "streams_errors",
@@ -159,40 +165,53 @@ def build_import(
     source: DataSource,
     target_schema: dict[str, list[str]],
     *,
-    include_system: bool = False,
+    import_tables: Iterable[str] = (),
     include_logs: bool = False,
     server_mode: str = "main",
     target_main_id: int = 1,
     target_server_ids: Iterable[int] = (1,),
 ) -> ImportPlan:
-    """Map the backup onto the target schema, honouring the system/log exclusions."""
+    """Map the backup onto the target schema, honouring the system/log exclusions.
+
+    ``import_tables`` picks which of :data:`OPTIONAL_SYSTEM_TABLES` are replaced by
+    the backup's rows; the others keep the target's. Importing ``servers`` replaces
+    the whole server list, so streams keep their original servers and
+    ``server_mode`` is ignored.
+    """
     check_source(source)
     if "lines" not in {t.lower() for t in target_schema}:
         raise XuiImportError("The target database has no `lines` table — is it XUI.one?")
     if server_mode not in SERVER_MODES:
         raise ValueError(f"server_mode must be one of {SERVER_MODES}")
+    chosen = {t.lower() for t in import_tables}
+    unknown = chosen - set(OPTIONAL_SYSTEM_TABLES)
+    if unknown:
+        raise ValueError(f"Only {OPTIONAL_SYSTEM_TABLES} can be chosen, not {sorted(unknown)}")
     kept, logs, wanted = [], [], []
     for t in source.list_tables():
         low = t.lower()
-        if low in SYSTEM_TABLES and not include_system:
+        if low in SYSTEM_TABLES and low not in chosen:
             kept.append(t)
         elif low in LOG_TABLES and not include_logs:
             logs.append(t)
         else:
             wanted.append(t)
     src_names = {t.lower(): t for t in source.list_tables()}
-    servers_imported = include_system and "servers" in src_names
+    servers_imported = "servers" in chosen and "servers" in src_names
     if server_mode == "import" and not servers_imported and "servers" in src_names:
         wanted.append(src_names["servers"])
         kept.remove(src_names["servers"])
     plan = build_plan(source, SchemaSource(target_schema), wanted)
     imp = ImportPlan(plan=plan, kept_target=kept, skipped_logs=logs)
 
-    if not servers_imported and server_mode == "main":
+    if servers_imported:
+        imp.notes.append("Servers replaced by the backup's (old server IPs; fix the main "
+                         "server's IP in the panel if it changed).")
+    elif server_mode == "main":
         imp.row_filters["streams_servers"], imp.row_filters["streams"] = _move_to_main(
             target_main_id)
         imp.notes.append(f"All streams are moved to this XUI's main server (id {target_main_id}).")
-    elif not servers_imported and "servers" in src_names:
+    elif "servers" in src_names:
         taken = set(target_server_ids)
         extra = [r for r in source.iter_rows(src_names["servers"]) if not r.get("is_main")]
         clash = sorted(r.get("id") for r in extra if r.get("id") in taken)
@@ -213,6 +232,49 @@ def build_import(
     return imp
 
 
+@dataclass
+class RescueAccess:
+    """A fresh admin access code plus an admin login, created after the import.
+
+    Guarantees a way into the panel whatever was imported: the code and the user
+    both point at the admin group that exists *after* the import.
+    """
+
+    code: str
+    username: str
+    password: str  # shown once to the operator; only its hash is written
+
+    @classmethod
+    def generate(cls) -> RescueAccess:
+        return cls(
+            code=random_secret(8, string.ascii_letters),
+            username="rescue_" + random_secret(4, string.ascii_lowercase + string.digits),
+            password=random_secret(16),
+        )
+
+    def sql(self, schema: dict[str, list[str]]) -> list[str]:
+        admin_group = ("FROM `users_groups` WHERE `is_admin` = 1 "
+                       "ORDER BY `group_id` LIMIT 1")
+        out = [
+            "INSERT INTO `access_codes` (`code`, `type`, `enabled`, `groups`, `whitelist`) "
+            f"SELECT {_sql_literal(self.code)}, 0, 1, CONCAT('[', `group_id`, ']'), '[]' "
+            + admin_group
+        ]
+        values = {
+            "username": _sql_literal(self.username),
+            "password": _sql_literal(sha512_crypt(self.password)),
+            "email": "''", "ip": "''", "date_registered": "UNIX_TIMESTAMP()",
+            "member_group_id": "`group_id`", "credits": "0", "status": "1", "owner_id": "0",
+            "notes": "'Rescue admin created by XUI DB Tool'",
+        }
+        cols = [c for c in values if c in schema.get("users", [])]
+        out.append(
+            f"INSERT INTO `users` ({', '.join(_quote_ident(c) for c in cols)}) "
+            f"SELECT {', '.join(values[c] for c in cols)} " + admin_group
+        )
+        return out
+
+
 def write_import_script(
     source: DataSource,
     imp: ImportPlan,
@@ -220,12 +282,15 @@ def write_import_script(
     *,
     database: str = XUI_DB,
     batch_size: int = 500,
+    rescue: RescueAccess | None = None,
+    target_schema: dict[str, list[str]] | None = None,
     progress=None,
 ) -> Path:
     """Write the import as SQL (gzip if ``out_path`` ends in ``.gz``).
 
     Each mapped table is emptied with ``DELETE`` and refilled, all inside a single
     transaction: if the ``mysql`` client stops on an error, nothing is committed.
+    ``rescue`` adds an admin access code and admin user in the same transaction.
     """
     out_path = Path(out_path)
     opener = gzip.open if out_path.suffix == ".gz" else open
@@ -264,6 +329,9 @@ def write_import_script(
                 done += len(batch)
             if progress:
                 progress(m.table, done, total)
+        if rescue:
+            for s in rescue.sql(target_schema or {}):
+                fh.write(s + ";\n")
         fh.write("COMMIT;\nSET FOREIGN_KEY_CHECKS = 1;\n")
     log.info("Wrote XUI import script %s (%d tables)", out_path, len(imp.plan.transferable))
     return out_path
@@ -289,15 +357,23 @@ def import_via_ssh(
     mysql_user: str = "",
     mysql_password: str = "",
     database: str = XUI_DB,
-    include_system: bool = False,
+    import_tables: Iterable[str] = (),
     include_logs: bool = False,
     server_mode: str = "main",
     backup: bool = True,
+    create_rescue: bool = True,
+    refresh_codes: bool = True,
     plan_only: bool = False,
     progress=None,
     message=None,
 ) -> dict:
-    """Import an XUI.one backup into ``database`` on the server reached over SSH."""
+    """Import an XUI.one backup into ``database`` on the server reached over SSH.
+
+    With ``create_rescue`` a new admin access code and admin user are added (see
+    :class:`RescueAccess`). With ``refresh_codes`` XUI's own ``tools access`` is run
+    so nginx serves the access codes now in the database. The result lists every
+    access code with its panel URL.
+    """
     from .ssh_remote import SshError, SshSession
 
     say = message or (lambda _m: None)
@@ -316,12 +392,17 @@ def import_via_ssh(
             ) if "is_main" in schema.get("servers", []) else []
             ids = [int(r[0]) for r in servers]
             main_id = next((int(r[0]) for r in servers if r[1] == "1"), ids[0] if ids else 1)
-            imp = build_import(source, schema, include_system=include_system,
+            imp = build_import(source, schema, import_tables=import_tables,
                                include_logs=include_logs, server_mode=server_mode,
                                target_main_id=main_id, target_server_ids=ids or [main_id])
             for line in imp.summary_lines():
                 say(line)
-            result = {"database": database, "plan": imp, "backup": None, "row_counts": {}}
+            rescue = RescueAccess.generate() if create_rescue else None
+            if rescue and not {"access_codes", "users", "users_groups"} <= set(schema):
+                raise XuiImportError("Target lacks access_codes/users/users_groups; "
+                                     "cannot create the rescue access.")
+            result = {"database": database, "plan": imp, "backup": None, "row_counts": {},
+                      "rescue": None, "access_codes": [], "codes_refresh": None}
             if plan_only:
                 return result
 
@@ -338,7 +419,8 @@ def import_via_ssh(
 
             with tempfile.TemporaryDirectory(prefix="xdbtool-") as tmp:
                 local = write_import_script(source, imp, Path(tmp) / "xui_import.sql.gz",
-                                            database=database, progress=progress)
+                                            database=database, rescue=rescue,
+                                            target_schema=schema, progress=progress)
                 remote = ssh.temp_path(".sql.gz")
                 say(f"Uploading import script ({local.stat().st_size // 1024} KiB)…")
                 ssh.upload(local, remote, progress)
@@ -356,5 +438,71 @@ def import_via_ssh(
                     f"SELECT '{t}', COUNT(*) FROM {db}.{_quote_ident(t)}" for t in present
                 )
                 result["row_counts"] = {r[0]: int(r[1]) for r in ssh.mysql_query(q)}
+            if rescue:
+                lit = _sql_literal(rescue.username)
+                found = ssh.mysql_query(f"SELECT COUNT(*) FROM {_quote_ident(database)}.`users` "
+                                        f"WHERE `username` = {lit}")
+                if not found or found[0][0] == "0":
+                    raise XuiImportError("Data imported, but no admin group (users_groups."
+                                         "is_admin = 1) exists, so no rescue access was made.")
+                result["rescue"] = rescue
+            if refresh_codes:
+                result["codes_refresh"] = _refresh_access_codes(ssh)
+            port = _main_http_port(ssh, database, schema)
+            base = f"http://{ssh_config.host}{'' if port in (None, 80) else f':{port}'}"
+            result["panel_base"] = base
+            result["access_codes"] = [
+                {"code": c, "type": ACCESS_CODE_TYPES.get(int(t), f"type {t}"),
+                 "enabled": e == "1", "url": f"{base}/{c}/"}
+                for c, t, e in ssh.mysql_query(
+                    f"SELECT `code`, `type`, `enabled` FROM {_quote_ident(database)}"
+                    ".`access_codes` ORDER BY `id`")
+            ]
     log.info("Imported %s into %s on %s", Path(dump_path).name, database, ssh_config.host)
     return result
+
+
+def report_lines(result: dict) -> list[str]:
+    """Human-readable outcome of :func:`import_via_ssh` (shared by CLI and GUI)."""
+    lines: list[str] = []
+    if result.get("backup"):
+        lines.append(f"Previous `{result['database']}` saved on the server: {result['backup']}")
+    if result.get("row_counts"):
+        lines.append("Rows now in the panel:")
+        lines += [f"  {t:18} {n:>8}" for t, n in result["row_counts"].items()]
+    if result.get("access_codes"):
+        lines.append("Access codes (panel URLs):")
+        for c in result["access_codes"]:
+            state = "" if c["enabled"] else "  [disabled]"
+            lines.append(f"  {c['type']:9} {c['url']}{state}")
+    rescue = result.get("rescue")
+    if rescue:
+        lines += [
+            "RESCUE ACCESS (save it now, the password is not stored anywhere):",
+            f"  URL      : {result.get('panel_base', '')}/{rescue.code}/",
+            f"  Username : {rescue.username}",
+            f"  Password : {rescue.password}",
+            "  Delete this rescue user/code in the panel once you are in.",
+        ]
+    if result.get("codes_refresh"):
+        lines.append(f"Access-code refresh: {result['codes_refresh']}")
+    return lines
+
+
+def _main_http_port(ssh, database: str, schema: dict[str, list[str]]) -> int | None:
+    if not {"is_main", "http_broadcast_port"} <= set(schema.get("servers", [])):
+        return None
+    rows = ssh.mysql_query(f"SELECT `http_broadcast_port` FROM {_quote_ident(database)}"
+                           ".`servers` WHERE `is_main` = 1 LIMIT 1")
+    return int(rows[0][0]) if rows and rows[0][0].isdigit() else None
+
+
+def _refresh_access_codes(ssh) -> str:
+    """Ask XUI to rebuild its access-code web config from the database."""
+    code, _, _ = ssh.run(f"test -x {XUI_TOOLS} && grep -qw access {XUI_TOOLS}", check=False)
+    if code != 0:
+        return (f"{XUI_TOOLS} not found: regenerate access codes from the panel or "
+                "restart XUI so new/imported codes are served.")
+    code, out, err = ssh.run(f"timeout 120 {XUI_TOOLS} access </dev/null", check=False)
+    text = (out.strip() or err.strip())[-400:]
+    return f"`tools access` {'OK' if code == 0 else f'exit {code}'}: {text}"

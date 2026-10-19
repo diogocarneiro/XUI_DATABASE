@@ -252,8 +252,18 @@ def cmd_xui_import(args) -> int:
     from .core.dump_source import SqlDumpSource
     from .core.source import SourceError
     from .core.ssh_remote import SshConfig, SshError
-    from .core.xui_import import XuiImportError, build_import, import_via_ssh, write_import_script
+    from .core.xui_import import (
+        RescueAccess,
+        XuiImportError,
+        build_import,
+        import_via_ssh,
+        report_lines,
+        write_import_script,
+    )
 
+    chosen = [t for t, on in (("access_codes", args.import_access_codes),
+                              ("settings", args.import_settings),
+                              ("servers", args.import_servers)) if on]
     try:
         if args.sql_out:
             from .core.templates import list_templates
@@ -267,13 +277,18 @@ def cmd_xui_import(args) -> int:
                 schema = {t: [c.name for c in tmpl.table_info(t).columns]
                           for t in tmpl.list_tables()}
             with SqlDumpSource(args.dump_file) as src:
-                imp = build_import(src, schema, include_system=args.include_system,
+                imp = build_import(src, schema, import_tables=chosen,
                                    include_logs=args.include_logs, server_mode=args.servers)
                 print("\n".join(imp.summary_lines()))
-                out = write_import_script(src, imp, args.sql_out, database=args.database)
+                rescue = None if args.no_rescue else RescueAccess.generate()
+                out = write_import_script(src, imp, args.sql_out, database=args.database,
+                                          rescue=rescue, target_schema=schema)
             run = (f"gunzip -c {out.name} | mysql -u root -p" if out.suffix == ".gz"
                    else f"mysql -u root -p < {out.name}")
             print(f"Wrote {out}. Back up `{args.database}` first, then on the server run:  {run}")
+            if rescue:
+                print(f"Rescue access after running it:  /{rescue.code}/  user "
+                      f"{rescue.username}  password {rescue.password}")
             return 0
         if not args.ssh_host:
             print("--ssh-host is required (or use --sql-out with --template).", file=sys.stderr)
@@ -282,9 +297,10 @@ def cmd_xui_import(args) -> int:
                         password=args.ssh_password, key_file=args.ssh_key or "")
         result = import_via_ssh(
             ssh, args.dump_file, mysql_user=args.mysql_user, mysql_password=args.mysql_password,
-            database=args.database, include_system=args.include_system,
+            database=args.database, import_tables=chosen,
             include_logs=args.include_logs, server_mode=args.servers,
-            backup=not args.no_backup, plan_only=args.plan_only,
+            backup=not args.no_backup, create_rescue=not args.no_rescue,
+            refresh_codes=not args.no_refresh_codes, plan_only=args.plan_only,
             progress=_cli_progress, message=print,
         )
     except (XuiImportError, SshError, SourceError) as exc:
@@ -293,11 +309,8 @@ def cmd_xui_import(args) -> int:
     if args.plan_only:
         return 0
     print(file=sys.stderr)
-    if result["backup"]:
-        print(f"Previous `{args.database}` saved on the server: {result['backup']}")
-    for table, n in result["row_counts"].items():
-        print(f"  {table:18} {n:>8} rows")
-    print("Done. Restart XUI on the server so it reloads its caches.")
+    print("\n".join(report_lines(result)))
+    print("Done. Restart XUI on the server if lines/streams do not show up straight away.")
     return 0
 
 
@@ -407,8 +420,16 @@ def build_parser() -> argparse.ArgumentParser:
     pxi.add_argument("--servers", choices=["main", "import"], default="main",
                      help="main: move all streams to the target's main server (default); "
                           "import: add the backup's load balancers as extra servers")
-    pxi.add_argument("--include-system", action="store_true",
-                     help="Also replace servers/settings/access_codes (changes admin URL!)")
+    pxi.add_argument("--import-access-codes", action="store_true",
+                     help="Replace access codes with the backup's (old admin/reseller URLs)")
+    pxi.add_argument("--import-settings", action="store_true",
+                     help="Replace panel settings with the backup's")
+    pxi.add_argument("--import-servers", action="store_true",
+                     help="Replace the server list with the backup's (old IPs; ignores --servers)")
+    pxi.add_argument("--no-rescue", action="store_true",
+                     help="Do not create the rescue admin access code + user")
+    pxi.add_argument("--no-refresh-codes", action="store_true",
+                     help="Do not run XUI's `tools access` after the import")
     pxi.add_argument("--include-logs", action="store_true", help="Also import log/stat tables")
     pxi.add_argument("--no-backup", action="store_true",
                      help="Skip the mysqldump of the current `xui` on the server")

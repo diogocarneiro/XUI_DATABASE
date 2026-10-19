@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format is based on
   target's main server or adds the old load balancers; backs up `xui` with
   `mysqldump` first and replaces data in one transaction. Offline `--sql-out`
   with a template as the target schema. New `core/xui_import.py`.
+- XUI import: choose **access codes / settings / servers** individually; create a
+  **rescue access** (admin access code + admin user, random password) in the same
+  transaction; report all access-code URLs and the rescue login at the end; run
+  XUI's `tools access` to refresh served codes. New `core/passwords.py`
+  (SHA-512 crypt for new accounts only, checked against the spec vectors).
 - **XUI.one migration staging**: `xui-migrate` CLI command and an **XUI
   Migration** GUI tab load an old Xtream UI / ZapX / StreamCreed / Xtream Codes v2
   dump into the `xui_migrate` database, ready for XUI's *Database Migration*

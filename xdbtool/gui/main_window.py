@@ -591,12 +591,20 @@ class MainWindow(QMainWindow):
         self.xi_backup = QCheckBox("Back up the current `xui` database on the server first")
         self.xi_backup.setChecked(True)
         self.xi_logs = QCheckBox("Also import logs / statistics")
-        self.xi_system = QCheckBox("Also replace servers / settings / access codes "
-                                   "(changes the admin URL!)")
+        self.xi_access = QCheckBox("Import access codes (old admin/reseller URLs replace this "
+                                   "server's)")
+        self.xi_settings = QCheckBox("Import settings")
+        self.xi_srv = QCheckBox("Import servers (old IPs; replaces the 'Streams' choice)")
+        self.xi_srv.toggled.connect(lambda on: self.xi_servers.setEnabled(not on))
+        self.xi_rescue = QCheckBox("Create a rescue admin access code + user at the end")
+        self.xi_rescue.setChecked(True)
         form.addRow("Streams:", self.xi_servers)
         form.addRow("", self.xi_backup)
         form.addRow("", self.xi_logs)
-        form.addRow("", self.xi_system)
+        form.addRow("System:", self.xi_access)
+        form.addRow("", self.xi_settings)
+        form.addRow("", self.xi_srv)
+        form.addRow("", self.xi_rescue)
         preview_btn = QPushButton("Preview XUI import")
         preview_btn.clicked.connect(lambda: self._do_xui_import(plan_only=True))
         import_btn = QPushButton("Import backup into `xui` on server")
@@ -730,12 +738,16 @@ class MainWindow(QMainWindow):
                                 "XUI import runs over SSH: choose SSH and enter the SSH host.")
             return
         backup = self.xi_backup.isChecked()
-        system = self.xi_system.isChecked()
+        chosen = [t for t, box in (("access_codes", self.xi_access),
+                                   ("settings", self.xi_settings),
+                                   ("servers", self.xi_srv)) if box.isChecked()]
+        rescue = self.xi_rescue.isChecked()
         if not plan_only:
             warn = "" if backup else "\n\nNo backup of the current `xui` will be taken!"
-            if system:
-                warn += ("\n\nServers, settings and access codes will be REPLACED: the admin "
-                         "URL and server IPs will be the backup's.")
+            if chosen:
+                warn += f"\n\nReplaced with the backup's: {', '.join(chosen)}."
+            if "access_codes" in chosen and not rescue:
+                warn += "\nThe current admin URL will stop working and no rescue is created!"
             if QMessageBox.question(
                 self, "Confirm XUI import",
                 f"Replace the data of the live `xui` database on {ssh_cfg.host} with "
@@ -744,25 +756,44 @@ class MainWindow(QMainWindow):
                 return
         opts = dict(
             mysql_user=self.x_user.text().strip(), mysql_password=self.x_pass.text(),
-            include_system=system, include_logs=self.xi_logs.isChecked(),
-            server_mode=self.xi_servers.currentData(), backup=backup, plan_only=plan_only,
+            import_tables=chosen, include_logs=self.xi_logs.isChecked(),
+            server_mode=self.xi_servers.currentData(), backup=backup,
+            create_rescue=rescue, plan_only=plan_only,
         )
 
         def job(progress, message):
             message(f"Reading {Path(dump).name} and the target schema…")
             result = xui_import.import_via_ssh(ssh_cfg, dump, progress=progress,
                                                message=message, **opts)
-            if plan_only:
-                return result
-            if result["backup"]:
-                message(f"Previous `xui` saved on the server: {result['backup']}")
-            for table, n in result["row_counts"].items():
-                message(f"  {table}: {n} rows")
-            message("Restart XUI on the server so it reloads its caches.")
+            if not plan_only:
+                for line in xui_import.report_lines(result):
+                    message(line)
             return result
 
-        self._start(job, done_msg="Preview ready (see log)." if plan_only
-                    else "XUI backup imported.")
+        if plan_only:
+            self._start(job, done_msg="Preview ready (see log).")
+            return
+
+        def done(result):
+            self.progress.setValue(100)
+            self._log("XUI backup imported.")
+            box = QMessageBox(self)
+            box.setWindowTitle("XUI import finished")
+            box.setIcon(QMessageBox.Information)
+            box.setText("Import finished. Access details:" if result.get("rescue")
+                        else "Import finished.")
+            box.setDetailedText("\n".join(xui_import.report_lines(result)))
+            rescue_acc = result.get("rescue")
+            if rescue_acc:
+                box.setInformativeText(
+                    f"URL: {result.get('panel_base', '')}/{rescue_acc.code}/\n"
+                    f"User: {rescue_acc.username}\nPassword: {rescue_acc.password}\n\n"
+                    "Save these now — the password is not stored anywhere."
+                )
+            box.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            box.exec()
+
+        self._start_custom(job, done)
 
     def _build_progress_box(self) -> QWidget:
         box = QWidget()

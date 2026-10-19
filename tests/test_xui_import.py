@@ -11,10 +11,13 @@ from collections import Counter
 import pytest
 
 from xdbtool.core.dump_source import SqlDumpSource
+from xdbtool.core.passwords import sha512_crypt
 from xdbtool.core.xui_import import (
+    RescueAccess,
     XuiImportError,
     build_import,
     import_via_ssh,
+    report_lines,
     write_import_script,
 )
 
@@ -71,6 +74,13 @@ TARGET = {
     "lines_logs": ["id"],
 }
 
+TARGET_WITH_USERS = {
+    **TARGET,
+    "servers": [*TARGET["servers"], "http_broadcast_port"],
+    "users":["id", "username", "password", "member_group_id", "status", "date_registered"],
+    "users_groups": ["group_id", "group_name", "is_admin"],
+}
+
 
 @pytest.fixture
 def backup(tmp_path):
@@ -125,7 +135,8 @@ def test_import_mode_refuses_server_id_clash(backup):
 
 
 def test_include_system_and_logs(backup):
-    imp = build_import(backup, TARGET, include_system=True, include_logs=True)
+    imp = build_import(backup, TARGET, import_tables=("access_codes", "settings", "servers"),
+                       include_logs=True)
     tables = {m.table for m in imp.plan.transferable}
     assert {"servers", "settings", "access_codes", "lines_logs"} <= tables
     # Servers come from the backup, so stream→server links are kept as they were.
@@ -165,16 +176,22 @@ class FakeSsh:
 
     def run(self, command, check=True):
         self.commands.append(command)
-        return 0, "", ""
+        return (1, "", "") if command.startswith("test -x") else (0, "", "")
 
     def upload(self, local, remote, progress=None):
         self.uploaded = gzip.open(local, "rt", encoding="utf-8").read()
 
     def mysql_query(self, sql):
         if "information_schema.COLUMNS" in sql:
-            return [[t, c] for t, cols in TARGET.items() for c in cols]
+            return [[t, c] for t, cols in TARGET_WITH_USERS.items() for c in cols]
+        if "http_broadcast_port" in sql:
+            return [["8080"]]
         if "is_main" in sql:
             return [["1", "1"]]
+        if "WHERE `username`" in sql:
+            return [["1"]]
+        if "FROM `xui`.`access_codes`" in sql:
+            return [["KEEPme12", "0", "1"], ["RsLr0001", "1", "0"]]
         return [["lines", "2"], ["streams", "2"]]
 
 
@@ -188,8 +205,18 @@ def test_import_via_ssh_backs_up_first(tmp_path, monkeypatch):
     result = import_via_ssh(SshConfig(host="xui.example"), path, mysql_user="u",
                             mysql_password="pw")
     ssh = FakeSsh.last
+    assert ssh.commands[-1].startswith("test -x /home/xui/tools")
     assert ssh.commands[0].startswith("bash -o pipefail -c 'mysqldump --single-transaction")
     assert ssh.commands[1] == "gunzip -c /tmp/xdbtool-test.sql.gz | mysql"
+    rescue = result["rescue"]
+    assert rescue.password not in ssh.uploaded             # only the hash is sent
+    assert f"'{rescue.username}'" in ssh.uploaded and "$6$rounds=20000$" in ssh.uploaded
+    assert ssh.uploaded.index(rescue.code) < ssh.uploaded.index("COMMIT;")
+    assert result["access_codes"][0] == {"code": "KEEPme12", "type": "admin", "enabled": True,
+                                         "url": "http://xui.example:8080/KEEPme12/"}
+    report = "\n".join(report_lines(result))
+    assert f"http://xui.example:8080/{rescue.code}/" in report
+    assert rescue.password in report and "[disabled]" in report
     assert not any("pw" in c for c in ssh.commands)
     assert "USE `xui`;" in ssh.uploaded
     assert result["backup"].startswith("/root/xui-before-import-")
@@ -197,3 +224,39 @@ def test_import_via_ssh_backs_up_first(tmp_path, monkeypatch):
 
     plan = import_via_ssh(SshConfig(host="xui.example"), path, plan_only=True)
     assert plan["backup"] is None and FakeSsh.last.commands == []
+    assert plan["rescue"] is None
+
+
+def test_each_system_table_is_chosen_individually(backup, tmp_path):
+    imp = build_import(backup, TARGET, import_tables=["access_codes"])
+    tables = {m.table for m in imp.plan.transferable}
+    assert "access_codes" in tables and not {"settings", "servers"} & tables
+    assert "streams_servers" in imp.row_filters            # servers kept → streams re-homed
+    text, _ = _script(backup, imp, tmp_path)
+    assert "OLDCODE" in text and "old panel" not in text
+    with pytest.raises(ValueError):
+        build_import(backup, TARGET, import_tables=["crontab"])
+
+
+def test_rescue_sql_targets_admin_group_and_hashes_password():
+    r = RescueAccess.generate()
+    assert len(r.code) == 8 and r.code.isalpha() and r.username.startswith("rescue_")
+    code_sql, user_sql = r.sql(TARGET_WITH_USERS)
+    assert "`is_admin` = 1" in code_sql and "CONCAT('[', `group_id`, ']')" in code_sql
+    assert "`member_group_id`" in user_sql and r.password not in user_sql
+    stored = user_sql.split("'")[3]
+    salt = stored.split("$")[3]
+    assert sha512_crypt(r.password, salt) == stored      # verifies like PHP crypt()
+    assert "`email`" not in user_sql                      # only columns the target has
+
+
+@pytest.mark.parametrize("password,salt,rounds,expected", [
+    ("Hello world!", "saltstringsaltstring", 10000,
+     "$6$rounds=10000$saltstringsaltst$OW1/O6BYHV6BcXZu8QVeXbDWra3Oeqh0sbHbbMCVNSnCM/"
+     "UrjmM0Dp8vOuZeHBy/YTBmSK6H9qs/y3RnOaw5v."),
+    ("This is just a test", "toolongsaltstring", 5000,
+     "$6$rounds=5000$toolongsaltstrin$lQ8jolhgVRVhY4b5pZKaysCLi0QBxGoNeKQzQ3glMhwllF7oGDZxUhx"
+     "1yxdYcz/e1JSbq3y6JMxxl8audkUEm0"),
+])
+def test_sha512_crypt_spec_vectors(password, salt, rounds, expected):
+    assert sha512_crypt(password, salt, rounds) == expected

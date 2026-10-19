@@ -171,7 +171,12 @@ schema. `xui-import` instead works over SSH against the live `xui` database:
 
 - copies only the tables/columns both sides have (fork-only ones are listed and skipped);
 - **keeps the target's `servers`, `settings` and `access_codes`** (its IP, settings
-  and admin URL) unless `--include-system`; skips logs unless `--include-logs`;
+  and admin URL) — bring any of them over individually with `--import-access-codes`,
+  `--import-settings`, `--import-servers`; skips logs unless `--include-logs`;
+- creates a **rescue access** at the end (new admin access code + `rescue_xxxx`
+  admin user with a random password, hashed as SHA-512 crypt like XUI does) and
+  prints every access code's panel URL; runs XUI's `/home/xui/tools access` so
+  nginx serves the codes (`--no-rescue`, `--no-refresh-codes` to skip);
 - `--servers main` (default) moves every stream to the target's main server;
   `--servers import` adds the backup's load balancers as extra servers instead;
 - takes a `mysqldump` of the current `xui` to `/root/xui-before-import-*.sql.gz`

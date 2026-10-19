@@ -63,6 +63,22 @@ _SSH_HINTS = {
 }
 
 
+PANEL_DATA_TABLES = ("lines", "users", "reg_users", "streams", "bouquets")
+
+
+class DropRefused(SourceError):
+    """Refused to DROP a database that contains panel data."""
+
+    def __init__(self, database: str, rows: dict[str, int]):
+        self.database = database
+        self.rows = rows
+        detail = ", ".join(f"{t}: {n}" for t, n in rows.items())
+        super().__init__(
+            f"Refusing to DROP `{database}`: it holds panel data ({detail}). "
+            "Use a new database name, or confirm explicitly that this data may be destroyed."
+        )
+
+
 def _quote_ident(name: str) -> str:
     """Safely quote a MySQL identifier (table/column) by escaping backticks."""
     if "\x00" in name:
@@ -237,8 +253,33 @@ class MySQLSource(DataSource):
             return list(cur.fetchall())
 
     # -- schema provisioning ----------------------------------------------
-    def create_database(self, name: str, charset: str = "utf8mb4", drop_existing: bool = False):
-        """Create (optionally dropping) a database and select it as current."""
+    def panel_rows(self, name: str) -> dict[str, int]:
+        """Row counts of panel data tables in database ``name`` ({} if absent/empty)."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT TABLE_NAME AS n FROM information_schema.TABLES "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME IN %s",
+                (name, PANEL_DATA_TABLES),
+            )
+            tables = [r["n"] for r in cur.fetchall()]
+            counts = {}
+            for t in tables:
+                cur.execute(f"SELECT COUNT(*) AS c FROM {_quote_ident(name)}.{_quote_ident(t)}")
+                counts[t] = int(cur.fetchone()["c"])
+        return {t: n for t, n in counts.items() if n}
+
+    def create_database(self, name: str, charset: str = "utf8mb4", drop_existing: bool = False,
+                        allow_drop_panel: bool = False):
+        """Create (optionally dropping) a database and select it as current.
+
+        Dropping a database that holds panel data (lines, users, streams…) raises
+        :class:`DropRefused` unless ``allow_drop_panel`` — so a template/restore
+        aimed at the live panel database by mistake cannot wipe it.
+        """
+        if drop_existing and not allow_drop_panel:
+            rows = self.panel_rows(name)
+            if rows:
+                raise DropRefused(name, rows)
         with self._cursor() as cur:
             if drop_existing:
                 cur.execute(f"DROP DATABASE IF EXISTS {_quote_ident(name)}")

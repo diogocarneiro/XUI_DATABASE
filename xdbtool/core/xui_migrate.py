@@ -236,7 +236,8 @@ def stage_live(
                     f"`{database}` already exists and has tables. Enable 'drop existing' "
                     "to replace it."
                 )
-        target.create_database(database, drop_existing=drop_existing)
+        # Replacing the staging schema is the point here (and confirmed by the caller).
+        target.create_database(database, drop_existing=drop_existing, allow_drop_panel=True)
         count = target.execute_script([*SESSION_PREAMBLE, *prepared.statements], progress)
 
         loaded = {t.lower(): t for t in target.list_tables()}

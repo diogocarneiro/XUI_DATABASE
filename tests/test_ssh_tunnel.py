@@ -117,3 +117,62 @@ def test_profile_keeps_ssh_settings_but_not_unsaved_passwords():
     loaded = load_store().profiles[0]
     assert loaded.use_ssh and loaded.ssh_host == "192.0.2.10"
     assert loaded.password == "" and loaded.ssh_password == ""
+
+
+class _Cursor:
+    def __init__(self, log):
+        self.log = log
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, args=None):
+        self.log.append(sql)
+
+
+def _source_with_panel(rows):
+    src = MySQLSource(ConnectionConfig())
+    executed: list[str] = []
+    src._cursor = lambda: _Cursor(executed)
+    src.panel_rows = lambda name: rows
+    return src, executed
+
+
+def test_drop_of_a_panel_database_is_refused():
+    from xdbtool.core.mysql_source import DropRefused
+
+    src, executed = _source_with_panel({"lines": 485, "streams": 6263})
+    with pytest.raises(DropRefused) as info:
+        src.create_database("xui", drop_existing=True)
+    assert info.value.rows == {"lines": 485, "streams": 6263}
+    assert not any("DROP" in s for s in executed)          # nothing touched
+
+    src.create_database("xui", drop_existing=True, allow_drop_panel=True)
+    assert executed[0] == "DROP DATABASE IF EXISTS `xui`"
+
+
+def test_drop_of_an_empty_database_needs_no_extra_confirmation():
+    src, executed = _source_with_panel({})
+    src.create_database("xui_test", drop_existing=True)
+    assert executed[0] == "DROP DATABASE IF EXISTS `xui_test`"
+
+
+def test_cli_init_db_stops_on_panel_drop(monkeypatch, capsys):
+    import xdbtool.core.templates as templates
+    from xdbtool.__main__ import main
+    from xdbtool.core.mysql_source import DropRefused
+
+    seen = {}
+
+    def fake_create(cfg, key, db, **kw):
+        seen.update(kw, ssh=cfg.ssh)
+        raise DropRefused(db, {"lines": 3})
+
+    monkeypatch.setattr(templates, "create_from_template", fake_create)
+    rc = main(["init-db", "--template", "t", "--target-host", "127.0.0.1",
+               "--target-database", "xui", "--drop", "--ssh-host", "192.0.2.10"])
+    assert rc == 2 and "--allow-drop-panel" in capsys.readouterr().err
+    assert seen["allow_drop_panel"] is False and seen["ssh"].host == "192.0.2.10"

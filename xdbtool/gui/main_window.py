@@ -41,12 +41,13 @@ from ..core.config import ConnectionProfile, load_store, save_store
 from ..core.dump_source import SqlDumpSource
 from ..core.exporter import ExportOptions, export_tables
 from ..core.migrator import MigrationOptions, build_plan, execute_plan
-from ..core.mysql_source import ConnectionConfig, MySQLSource
+from ..core.mysql_source import ConnectionConfig, DropRefused, MySQLSource
 from ..core.repair import check_and_repair, run_maintenance
 from ..core.restore import restore_dump
 from ..core.source import DataSource
 from ..core.ssh_remote import SshConfig
 from ..core.templates import create_from_template, register_template
+from .ssh_fields import SshFields
 from .workers import JobRunner
 
 REDACT_HINTS = frozenset({"password", "pass", "pwd", "secret", "token", "api_key", "apikey"})
@@ -130,52 +131,15 @@ class MainWindow(QMainWindow):
         prof_row.addWidget(save_btn)
         prof_row.addWidget(del_btn)
 
-        self.in_via = QComboBox()
-        self.in_via.addItem("Direct MySQL connection", "direct")
-        self.in_via.addItem("SSH tunnel (MySQL only accepts local connections)", "ssh")
-        self.in_ssh_host = QLineEdit()
-        self.in_ssh_host.setPlaceholderText("server IP, e.g. 192.168.1.106")
-        self.in_ssh_port = QSpinBox()
-        self.in_ssh_port.setRange(1, 65535)
-        self.in_ssh_port.setValue(22)
-        self.in_ssh_user = QLineEdit("root")
-        self.in_ssh_pass = QLineEdit()
-        self.in_ssh_pass.setEchoMode(QLineEdit.Password)
-        self.in_ssh_pass.setPlaceholderText("blank = SSH key / agent")
-        self.in_ssh_key = QLineEdit()
-        self.in_ssh_key.setPlaceholderText("optional private key file")
-        ssh_row = QHBoxLayout()
-        for label, widget, stretch in (("Host:", self.in_ssh_host, 3),
-                                       ("Port:", self.in_ssh_port, 0),
-                                       ("User:", self.in_ssh_user, 1),
-                                       ("Password:", self.in_ssh_pass, 2),
-                                       ("Key:", self.in_ssh_key, 2)):
-            ssh_row.addWidget(QLabel(label))
-            ssh_row.addWidget(widget, stretch)
-
         form.addRow("Profile:", self._wrap(prof_row))
-        form.addRow("Connect via:", self.in_via)
-        form.addRow("SSH:", self._wrap(ssh_row))
-        ssh_index = form.rowCount() - 1
+        self.src_ssh = SshFields(form, self.in_host)
+        self.src_ssh.add_rows()
         form.addRow("Host:", self.in_host)
         form.addRow("Port:", self.in_port)
         form.addRow("User:", self.in_user)
         form.addRow("Password:", self.in_pass)
         form.addRow("Database:", self.in_db)
         form.addRow("", self.save_pass)
-
-        def on_via(_idx: int) -> None:
-            ssh = self.in_via.currentData() == "ssh"
-            form.setRowVisible(ssh_index, ssh)
-            form.labelForField(self.in_host).setText("MySQL host (on server):" if ssh
-                                                     else "Host:")
-            # Switching to SSH: the old host is the SSH server; MySQL is local to it.
-            if ssh and not self.in_ssh_host.text().strip():
-                self.in_ssh_host.setText(self.in_host.text().strip())
-                self.in_host.setText("127.0.0.1")
-
-        self.in_via.currentIndexChanged.connect(on_via)
-        on_via(0)
         return w
 
     def _build_dump_form(self) -> QWidget:
@@ -293,6 +257,8 @@ class MainWindow(QMainWindow):
 
         form.addRow("Template:", self._wrap(tmpl_row))
         form.addRow("", reg)
+        self.t_ssh = SshFields(form, self.t_host, "Target host:")
+        self.t_ssh.add_rows()
         form.addRow("Target host:", self.t_host)
         form.addRow("Target port:", self.t_port)
         form.addRow("Target user:", self.t_user)
@@ -353,17 +319,54 @@ class MainWindow(QMainWindow):
             f"DROP DATABASE `{db_name}` if it exists, then recreate it?",
         ) != QMessageBox.Yes:
             return
-        cfg = ConnectionConfig(
-            host=self.t_host.text().strip(), port=self.t_port.value(),
-            user=self.t_user.text().strip(), password=self.t_pass.text(),
-        )
+        try:
+            ssh = self.t_ssh.config()
+        except ValueError as exc:
+            QMessageBox.warning(self, "SSH", str(exc))
+            return
         drop = self.t_drop.isChecked()
 
-        def job(progress, message):
-            message(f"Creating `{db_name}` from template '{key}'…")
-            return create_from_template(cfg, key, db_name, drop_existing=drop, progress=progress)
+        def run(allow_drop_panel: bool) -> None:
+            cfg = ConnectionConfig(
+                host=self.t_host.text().strip() or "127.0.0.1", port=self.t_port.value(),
+                user=self.t_user.text().strip(), password=self.t_pass.text(), ssh=ssh,
+            )
 
-        self._start(job, done_msg=f"Database `{db_name}` created from template.")
+            def job(progress, message):
+                message(f"Creating `{db_name}` from template '{key}'…")
+                try:
+                    return create_from_template(cfg, key, db_name, drop_existing=drop,
+                                                allow_drop_panel=allow_drop_panel,
+                                                progress=progress)
+                except DropRefused as exc:
+                    return exc
+
+            def done(result):
+                if isinstance(result, DropRefused):
+                    if self._confirm_panel_drop(result):
+                        run(allow_drop_panel=True)
+                    else:
+                        self._log(f"Cancelled: `{db_name}` was left untouched.")
+                    return
+                self.progress.setValue(100)
+                self._log(f"Database `{db_name}` created from template "
+                          f"({result['statements']} statements).")
+
+            self._start_custom(job, done)
+
+        run(allow_drop_panel=False)
+
+    def _confirm_panel_drop(self, exc: DropRefused) -> bool:
+        """Second, typed confirmation before dropping a database with panel data."""
+        rows = "\n".join(f"  {t}: {n} rows" for t, n in exc.rows.items())
+        self._log(str(exc))
+        text, ok = QInputDialog.getText(
+            self, "This database holds panel data",
+            f"`{exc.database}` is NOT empty — it contains panel data:\n{rows}\n\n"
+            "Dropping it destroys all of this (if it is the live panel database, the panel "
+            "stops working).\n\nType the database name to DROP it anyway:",
+        )
+        return ok and text.strip() == exc.database
 
     def _start_custom(self, job, on_finished) -> None:
         self.progress.setValue(0)
@@ -389,6 +392,8 @@ class MainWindow(QMainWindow):
         self.m_pass.setEchoMode(QLineEdit.Password)
         self.m_db = QLineEdit()
         form.addRow(QLabel("<b>Target server</b> (data is written here)"))
+        self.m_ssh = SshFields(form, self.m_host)
+        self.m_ssh.add_rows()
         form.addRow("Host:", self.m_host)
         form.addRow("Port:", self.m_port)
         form.addRow("User:", self.m_user)
@@ -437,18 +442,30 @@ class MainWindow(QMainWindow):
         if path:
             self.m_dump.setText(path)
 
-    def _mig_target_cfg(self) -> ConnectionConfig:
+    def _mig_target_cfg(self) -> ConnectionConfig | None:
+        """Target settings of the Migrate / Restore tab (None after a warning)."""
+        try:
+            ssh = self.m_ssh.config()
+        except ValueError as exc:
+            QMessageBox.warning(self, "SSH", str(exc))
+            return None
         return ConnectionConfig(
-            host=self.m_host.text().strip(), port=self.m_port.value(),
+            host=self.m_host.text().strip() or "127.0.0.1", port=self.m_port.value(),
             user=self.m_user.text().strip(), password=self.m_pass.text(),
-            database=self.m_db.text().strip(),
+            database=self.m_db.text().strip(), ssh=ssh,
         )
+
+    @staticmethod
+    def _where(cfg: ConnectionConfig) -> str:
+        return f"{cfg.ssh.host} (SSH)" if cfg.ssh else cfg.host
 
     def _do_build_plan(self) -> None:
         if self._busy_guard():
             return
         src = self.source
         cfg = self._mig_target_cfg()
+        if cfg is None:
+            return
         if not cfg.database:
             QMessageBox.warning(self, "No target DB", "Enter the target database name.")
             return
@@ -469,6 +486,8 @@ class MainWindow(QMainWindow):
         if self._busy_guard():
             return
         cfg = self._mig_target_cfg()
+        if cfg is None:
+            return
         if not cfg.database:
             QMessageBox.warning(self, "No target DB", "Enter the target database name.")
             return
@@ -480,7 +499,7 @@ class MainWindow(QMainWindow):
                 return
         elif QMessageBox.question(
             self, "Confirm migration",
-            f"Write data directly into `{cfg.database}` on {cfg.host}?\n"
+            f"Write data directly into `{cfg.database}` on {self._where(cfg)}?\n"
             "This modifies the live target. Make sure you have a backup.",
         ) != QMessageBox.Yes:
             return
@@ -511,6 +530,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No dump", "Select a .sql dump to restore.")
             return
         cfg = self._mig_target_cfg()
+        if cfg is None:
+            return
         db = cfg.database or None
         if self.m_create.isChecked() and not db:
             QMessageBox.warning(self, "No target DB", "Enter the database name to create.")
@@ -518,19 +539,36 @@ class MainWindow(QMainWindow):
         dest = db or "(dump's own database)"
         if QMessageBox.question(
             self, "Confirm restore",
-            f"Execute '{Path(dump).name}' directly into {dest} on {cfg.host}?\n"
+            f"Execute '{Path(dump).name}' directly into {dest} on {self._where(cfg)}?\n"
             "This runs the dump as-is on the live server.",
         ) != QMessageBox.Yes:
             return
         create = self.m_create.isChecked()
         drop = self.m_drop.isChecked()
 
-        def job(progress, message):
-            message(f"Restoring {Path(dump).name}…")
-            return restore_dump(cfg, dump, database=db, create=create,
-                                drop_existing=drop, progress=progress)
+        def run(allow_drop_panel: bool) -> None:
+            def job(progress, message):
+                message(f"Restoring {Path(dump).name}…")
+                try:
+                    return restore_dump(cfg, dump, database=db, create=create,
+                                        drop_existing=drop, allow_drop_panel=allow_drop_panel,
+                                        progress=progress)
+                except DropRefused as exc:
+                    return exc
 
-        self._start(job, done_msg="Restore finished.")
+            def done(result):
+                if isinstance(result, DropRefused):
+                    if self._confirm_panel_drop(result):
+                        run(allow_drop_panel=True)
+                    else:
+                        self._log(f"Cancelled: `{result.database}` was left untouched.")
+                    return
+                self.progress.setValue(100)
+                self._log(f"Restore finished ({result['statements']} statements).")
+
+            self._start_custom(job, done)
+
+        run(allow_drop_panel=False)
 
     def _build_xui_migrate_tab(self) -> QWidget:
         w = QWidget()
@@ -937,24 +975,26 @@ class MainWindow(QMainWindow):
         self.in_db.setText(p.database)
         self.in_pass.setText(p.password)
         self.save_pass.setChecked(p.save_password)
-        self.in_ssh_host.setText(p.ssh_host)
-        self.in_ssh_port.setValue(p.ssh_port)
-        self.in_ssh_user.setText(p.ssh_user)
-        self.in_ssh_key.setText(p.ssh_key)
-        self.in_ssh_pass.setText(p.ssh_password)
-        self.in_via.setCurrentIndex(1 if p.use_ssh else 0)
+        s = self.src_ssh
+        s.host.setText(p.ssh_host)
+        s.port.setValue(p.ssh_port)
+        s.user.setText(p.ssh_user)
+        s.key.setText(p.ssh_key)
+        s.password.setText(p.ssh_password)
+        s.set_enabled(p.use_ssh)
 
     def _save_profile(self) -> None:
-        ssh = self.in_via.currentData() == "ssh"
-        where = f"{self.in_ssh_host.text()} (ssh)" if ssh else self.in_host.text()
+        s = self.src_ssh
+        ssh = s.enabled
+        where = f"{s.host.text()} (ssh)" if ssh else self.in_host.text()
         name = f"{self.in_user.text()}@{where}/{self.in_db.text()}"
         prof = ConnectionProfile(
             name=name, host=self.in_host.text(), port=self.in_port.value(),
             user=self.in_user.text(), database=self.in_db.text(),
             password=self.in_pass.text(), save_password=self.save_pass.isChecked(),
-            use_ssh=ssh, ssh_host=self.in_ssh_host.text().strip(),
-            ssh_port=self.in_ssh_port.value(), ssh_user=self.in_ssh_user.text().strip(),
-            ssh_key=self.in_ssh_key.text().strip(), ssh_password=self.in_ssh_pass.text(),
+            use_ssh=ssh, ssh_host=s.host.text().strip(), ssh_port=s.port.value(),
+            ssh_user=s.user.text().strip(), ssh_key=s.key.text().strip(),
+            ssh_password=s.password.text(),
         )
         self.store.upsert(prof)
         save_store(self.store)
@@ -992,19 +1032,10 @@ class MainWindow(QMainWindow):
             self.source = None
         try:
             if self.source_kind.currentIndex() == 0:
-                ssh = None
-                if self.in_via.currentData() == "ssh":
-                    ssh = SshConfig(
-                        host=self.in_ssh_host.text().strip(), port=self.in_ssh_port.value(),
-                        user=self.in_ssh_user.text().strip(),
-                        password=self.in_ssh_pass.text(), key_file=self.in_ssh_key.text().strip(),
-                    )
-                    if not ssh.host:
-                        raise ValueError("Enter the SSH host.")
                 cfg = ConnectionConfig(
                     host=self.in_host.text().strip() or "127.0.0.1", port=self.in_port.value(),
                     user=self.in_user.text().strip(), password=self.in_pass.text(),
-                    database=self.in_db.text().strip(), ssh=ssh,
+                    database=self.in_db.text().strip(), ssh=self.src_ssh.config(),
                 )
                 src: DataSource = MySQLSource(cfg)
             else:

@@ -189,12 +189,14 @@ def create_from_template(
     db_name: str,
     *,
     drop_existing: bool = False,
+    allow_drop_panel: bool = False,
     progress=None,
 ):
     """Create ``db_name`` on the target server and load the template schema in.
 
     ``target_config`` is a :class:`ConnectionConfig`; its ``database`` is ignored
-    (the new one is created and selected).
+    (the new one is created and selected). Dropping a database that holds panel
+    data needs ``allow_drop_panel`` (see :meth:`MySQLSource.create_database`).
     """
     from .mysql_source import MySQLSource  # local import keeps core import-light
 
@@ -211,7 +213,8 @@ def create_from_template(
     statements = [s for s in _iter_statements(sql_text) if s.strip()]
 
     with MySQLSource(cfg) as target:
-        target.create_database(db_name, drop_existing=drop_existing)
+        target.create_database(db_name, drop_existing=drop_existing,
+                               allow_drop_panel=allow_drop_panel)
         count = target.execute_script(statements, progress=progress)
     log.info("Created %s from template %s (%d statements)", db_name, key, count)
     return {"database": db_name, "template": key, "statements": count}

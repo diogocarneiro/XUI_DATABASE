@@ -34,7 +34,7 @@ class FakeTarget:
     def __exit__(self, *exc):
         return False
 
-    def create_database(self, name, charset="utf8mb4", drop_existing=False):
+    def create_database(self, name, charset="utf8mb4", drop_existing=False, **_kw):
         self.created = (name, drop_existing)
         self.selected = name
 

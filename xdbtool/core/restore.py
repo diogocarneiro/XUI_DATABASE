@@ -25,6 +25,7 @@ def restore_dump(
     database: str | None = None,
     create: bool = False,
     drop_existing: bool = False,
+    allow_drop_panel: bool = False,
     progress=None,
 ) -> dict:
     """Execute a ``.sql`` dump against the target server.
@@ -51,7 +52,8 @@ def restore_dump(
         if create:
             if not database:
                 raise ValueError("create=True requires a database name.")
-            target.create_database(database, drop_existing=drop_existing)
+            target.create_database(database, drop_existing=drop_existing,
+                                   allow_drop_panel=allow_drop_panel)
         elif database:
             target.select_database(database)
         count = target.execute_script(statements, progress=progress)

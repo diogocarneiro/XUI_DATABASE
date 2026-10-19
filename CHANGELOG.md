@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 ### Added
+- SSH tunnel on **Templates / New DB** and **Migrate / Restore** (shared
+  `gui/ssh_fields.py` widget, also used by Data source); CLI `--ssh-*` on
+  `init-db`/`restore`, `--target-ssh-*` on `migrate`.
+- **Drop guard**: `create_database(drop_existing=True)` refuses to drop a
+  database holding panel data (`DropRefused` with row counts) unless
+  `allow_drop_panel`; GUI asks to type the database name, CLI needs
+  `--allow-drop-panel`. `xui_migrate` staging replacement stays allowed.
 - **SSH tunnel for the main connection**: *Data source → Connect via → SSH
   tunnel* (CLI `--ssh-host` … on `info`/`export`/`maint`) forwards a local port
   to the server's MySQL, so tables, Export and Maintenance work with servers whose

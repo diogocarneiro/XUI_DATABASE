@@ -94,6 +94,14 @@ python -m xdbtool maint --host 127.0.0.1 --user XUI_DB_USER --password XUI_DB_PA
     --database xui --ssh-host 192.168.1.106 --ssh-password secret --operation auto
 ```
 
+The same *Connect via* choice is on **Templates / New DB** and **Migrate / Restore**
+(CLI: `--ssh-*` on `init-db`/`restore`, `--target-ssh-*` on `migrate`).
+
+**Drop guard:** `--drop` / "DROP database first" refuses to drop a database that
+holds panel data (`lines`, `users`, `streams`, …) — e.g. the live `xui` — and
+shows its row counts. The GUI then asks you to type the database name; the CLI
+needs `--allow-drop-panel`. Use a new name (e.g. `xui_test`) for fresh databases.
+
 ### Templates — recreate a fresh panel database
 
 ```bash

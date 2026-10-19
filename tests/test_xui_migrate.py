@@ -130,7 +130,7 @@ class FakeServer:
         self.calls.append(("execute", sql, args))
         return [{"n": FakeServer.tables_in_existing}]
 
-    def create_database(self, name, charset="utf8mb4", drop_existing=False):
+    def create_database(self, name, charset="utf8mb4", drop_existing=False, **_kw):
         self.calls.append(("create", name, drop_existing))
 
     def execute_script(self, statements, progress=None):

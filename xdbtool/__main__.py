@@ -41,17 +41,24 @@ def _open_source(args):
 
     if getattr(args, "dump", None):
         return SqlDumpSource(args.dump)
-    ssh = None
-    if args.ssh_host:
-        from .core.ssh_remote import SshConfig
-
-        ssh = SshConfig(host=args.ssh_host, port=args.ssh_port, user=args.ssh_user,
-                        password=args.ssh_password, key_file=args.ssh_key or "")
     cfg = ConnectionConfig(
         host=args.host, port=args.port, user=args.user,
-        password=args.password, database=args.database, ssh=ssh,
+        password=args.password, database=args.database, ssh=_ssh_from_args(args),
     )
     return MySQLSource(cfg)
+
+
+def _ssh_from_args(args, prefix: str = ""):
+    """SshConfig from ``--{prefix}ssh-*`` options, or None when no SSH host is given."""
+    host = getattr(args, f"{prefix}ssh_host", None)
+    if not host:
+        return None
+    from .core.ssh_remote import SshConfig
+
+    return SshConfig(host=host, port=getattr(args, f"{prefix}ssh_port"),
+                     user=getattr(args, f"{prefix}ssh_user"),
+                     password=getattr(args, f"{prefix}ssh_password"),
+                     key_file=getattr(args, f"{prefix}ssh_key") or "")
 
 
 def _cli_progress(label: str, done: int, total: int) -> None:
@@ -104,17 +111,21 @@ def cmd_templates(args) -> int:
 
 
 def cmd_init_db(args) -> int:
-    from .core.mysql_source import ConnectionConfig
+    from .core.mysql_source import ConnectionConfig, DropRefused
     from .core.templates import create_from_template
 
     cfg = ConnectionConfig(
         host=args.target_host, port=args.target_port, user=args.target_user,
-        password=args.target_password,
+        password=args.target_password, ssh=_ssh_from_args(args),
     )
-    result = create_from_template(
-        cfg, args.template, args.target_database,
-        drop_existing=args.drop, progress=_cli_progress,
-    )
+    try:
+        result = create_from_template(
+            cfg, args.template, args.target_database, drop_existing=args.drop,
+            allow_drop_panel=args.allow_drop_panel, progress=_cli_progress,
+        )
+    except DropRefused as exc:
+        print(f"\n{exc}\n(add --allow-drop-panel to really destroy it)", file=sys.stderr)
+        return 2
     print(file=sys.stderr)
     print(f"Created database '{result['database']}' from template "
           f"'{result['template']}' ({result['statements']} statements).")
@@ -155,6 +166,7 @@ def cmd_migrate(args) -> int:
     target = MySQLSource(ConnectionConfig(
         host=args.target_host, port=args.target_port, user=args.target_user,
         password=args.target_password, database=args.target_database,
+        ssh=_ssh_from_args(args, "target_"),
     ))
     with _open_source(args) as src, target:
         plan = build_plan(src, target, args.tables or None)
@@ -179,17 +191,22 @@ def cmd_migrate(args) -> int:
 
 
 def cmd_restore(args) -> int:
-    from .core.mysql_source import ConnectionConfig
+    from .core.mysql_source import ConnectionConfig, DropRefused
     from .core.restore import restore_dump
 
     cfg = ConnectionConfig(
         host=args.target_host, port=args.target_port, user=args.target_user,
-        password=args.target_password,
+        password=args.target_password, ssh=_ssh_from_args(args),
     )
-    result = restore_dump(
-        cfg, args.dump_file, database=args.target_database,
-        create=args.create, drop_existing=args.drop, progress=_cli_progress,
-    )
+    try:
+        result = restore_dump(
+            cfg, args.dump_file, database=args.target_database, create=args.create,
+            drop_existing=args.drop, allow_drop_panel=args.allow_drop_panel,
+            progress=_cli_progress,
+        )
+    except DropRefused as exc:
+        print(f"\n{exc}\n(add --allow-drop-panel to really destroy it)", file=sys.stderr)
+        return 2
     print(file=sys.stderr)
     print(f"Restored '{result['source']}' into '{result['database']}' "
           f"({result['statements']} statements).")
@@ -358,6 +375,7 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--no-ignore", action="store_true", help="Do not use INSERT IGNORE")
     pg.add_argument("--sql-out", help="Write migration SQL to this file instead of executing")
     pg.add_argument("--plan-only", action="store_true", help="Show the plan and stop")
+    _add_ssh_args(pg, mysql_creds=False, prefix="target-")
     pg.set_defaults(func=cmd_migrate)
 
     pt = sub.add_parser("templates", help="List or register base schema templates")
@@ -378,6 +396,9 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("--target-password", default="")
     pd.add_argument("--target-database", required=True, help="New database name to create")
     pd.add_argument("--drop", action="store_true", help="DROP the database first if it exists")
+    pd.add_argument("--allow-drop-panel", action="store_true",
+                    help="Allow --drop even when the database holds panel data (destroys it!)")
+    _add_ssh_args(pd, mysql_creds=False)
     pd.set_defaults(func=cmd_init_db)
 
     pr = sub.add_parser("restore", help="Inject a .sql dump directly into a server")
@@ -389,6 +410,9 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--target-database", help="Schema to load into (created with --create)")
     pr.add_argument("--create", action="store_true", help="CREATE the target database first")
     pr.add_argument("--drop", action="store_true", help="DROP the database first if it exists")
+    pr.add_argument("--allow-drop-panel", action="store_true",
+                    help="Allow --drop even when the database holds panel data (destroys it!)")
+    _add_ssh_args(pr, mysql_creds=False)
     pr.set_defaults(func=cmd_restore)
 
     px = sub.add_parser(
@@ -464,15 +488,17 @@ def _content_list(value: str) -> list[str]:
     return kinds
 
 
-def _add_ssh_args(p: argparse.ArgumentParser, mysql_creds: bool = True) -> None:
+def _add_ssh_args(p: argparse.ArgumentParser, mysql_creds: bool = True,
+                  prefix: str = "") -> None:
     help_host = ("XUI server SSH host (runs mysql on the server)" if mysql_creds else
-                 "Reach MySQL through an SSH tunnel to this host; --host is then the MySQL "
-                 "address on that server (usually 127.0.0.1)")
-    p.add_argument("--ssh-host", help=help_host)
-    p.add_argument("--ssh-port", type=int, default=22)
-    p.add_argument("--ssh-user", default="root")
-    p.add_argument("--ssh-password", default="", help="SSH password (or use --ssh-key/agent)")
-    p.add_argument("--ssh-key", help="Private key file for SSH")
+                 "Reach MySQL through an SSH tunnel to this host; the MySQL host option is "
+                 "then the address on that server (usually 127.0.0.1)")
+    p.add_argument(f"--{prefix}ssh-host", help=help_host)
+    p.add_argument(f"--{prefix}ssh-port", type=int, default=22)
+    p.add_argument(f"--{prefix}ssh-user", default="root")
+    p.add_argument(f"--{prefix}ssh-password", default="",
+                   help="SSH password (or use a key/agent)")
+    p.add_argument(f"--{prefix}ssh-key", help="Private key file for SSH")
     if not mysql_creds:
         return
     p.add_argument("--mysql-user", default="",

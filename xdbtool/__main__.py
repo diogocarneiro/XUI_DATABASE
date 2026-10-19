@@ -58,7 +58,8 @@ def _ssh_from_args(args, prefix: str = ""):
     return SshConfig(host=host, port=getattr(args, f"{prefix}ssh_port"),
                      user=getattr(args, f"{prefix}ssh_user"),
                      password=getattr(args, f"{prefix}ssh_password"),
-                     key_file=getattr(args, f"{prefix}ssh_key") or "")
+                     key_file=getattr(args, f"{prefix}ssh_key") or "",
+                     mysql_socket=getattr(args, f"{prefix}ssh_mysql_socket", "") or "")
 
 
 def _cli_progress(label: str, done: int, total: int) -> None:
@@ -500,6 +501,10 @@ def _add_ssh_args(p: argparse.ArgumentParser, mysql_creds: bool = True,
                    help="SSH password (or use a key/agent)")
     p.add_argument(f"--{prefix}ssh-key", help="Private key file for SSH")
     if not mysql_creds:
+        p.add_argument(f"--{prefix}ssh-mysql-socket", nargs="?", const="auto", default="",
+                       metavar="PATH",
+                       help="Log in through the server's MySQL socket, like `mysql -uroot` "
+                            "there (root without password); PATH defaults to auto-detect")
         return
     p.add_argument("--mysql-user", default="",
                    help="With --ssh-host: MySQL user on the server (blank = root via socket)")

@@ -94,6 +94,13 @@ python -m xdbtool maint --host 127.0.0.1 --user XUI_DB_USER --password XUI_DB_PA
     --database xui --ssh-host 192.168.1.106 --ssh-password secret --operation auto
 ```
 
+**Root without a password?** If `mysql -uroot` works on the server, root uses
+MariaDB's *unix_socket* authentication, which only works through the local socket
+— never over TCP. Choose **SSH + server MySQL socket** (CLI `--ssh-mysql-socket`):
+each connection is relayed to MySQL's socket (auto-detected) by a small Python
+bridge run on the server as the SSH user, so it logs in exactly like `mysql -uroot`
+there. Leave the MySQL password blank.
+
 The same *Connect via* choice is on **Templates / New DB** and **Migrate / Restore**
 (CLI: `--ssh-*` on `init-db`/`restore`, `--target-ssh-*` on `migrate`).
 

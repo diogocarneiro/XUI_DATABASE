@@ -44,6 +44,42 @@ class SshConfig:
     password: str = ""
     key_file: str = ""
     timeout: int = 15
+    # For SshTunnel: "" forwards to MySQL's TCP port; "auto" or a path connects to
+    # MySQL's unix socket on the server instead — like typing `mysql -uroot` there,
+    # so root accounts that use unix_socket authentication (no password) work.
+    mysql_socket: str = ""
+
+
+SOCKET_CANDIDATES = (
+    "/run/mysqld/mysqld.sock", "/var/run/mysqld/mysqld.sock", "/var/lib/mysql/mysql.sock",
+    "/tmp/mysql.sock",
+)
+
+# Relays stdin/stdout of an SSH exec channel to MySQL's unix socket. Python 3 is on
+# every supported server; socat / nc -U are fallbacks.
+_PY_BRIDGE = (
+    "import os,socket,sys,threading\n"
+    "s=socket.socket(socket.AF_UNIX);s.connect(sys.argv[1])\n"
+    "def up():\n"
+    " while True:\n"
+    "  d=os.read(0,65536)\n"
+    "  if not d:\n"
+    "   s.shutdown(socket.SHUT_WR);return\n"
+    "  s.sendall(d)\n"
+    "threading.Thread(target=up,daemon=True).start()\n"
+    "while True:\n"
+    " d=s.recv(65536)\n"
+    " if not d:break\n"
+    " os.write(1,d)\n"
+)
+
+
+def socket_bridge_command(path: str) -> str:
+    p = shlex.quote(path)
+    return (f"if command -v python3 >/dev/null 2>&1; then exec python3 -c "
+            f"{shlex.quote(_PY_BRIDGE)} {p}; "
+            f"elif command -v socat >/dev/null 2>&1; then exec socat - UNIX-CONNECT:{p}; "
+            f"else exec nc -U {p}; fi")
 
 
 def _mysql_cnf(user: str, password: str) -> str:
@@ -80,7 +116,10 @@ class SshTunnel:
 
     Lets a normal MySQL client reach a server whose MySQL only accepts local
     connections: to MariaDB the connection comes from ``127.0.0.1``, exactly like
-    the panel's own. Use as a context manager or call :meth:`start` / :meth:`stop`.
+    the panel's own. With ``config.mysql_socket`` set, each connection is relayed
+    to MySQL's unix socket by a small bridge run on the server as the SSH user, so
+    MariaDB sees a local socket login (unix_socket auth: ``root`` with no
+    password). Use as a context manager or call :meth:`start` / :meth:`stop`.
     """
 
     def __init__(self, config: SshConfig, remote_host: str = "127.0.0.1",
@@ -91,6 +130,7 @@ class SshTunnel:
         self._client = None
         self._server: socket.socket | None = None
         self._stop = threading.Event()
+        self.socket_path = ""
 
     def __enter__(self) -> SshTunnel:
         self.start()
@@ -99,17 +139,49 @@ class SshTunnel:
     def __exit__(self, *exc) -> None:
         self.stop()
 
+    def _run(self, command: str) -> tuple[int, str]:
+        _, out, _ = self._client.exec_command(command, timeout=self.config.timeout)
+        text = out.read().decode("utf-8", "replace").strip()
+        return out.channel.recv_exit_status(), text
+
+    def _find_socket(self) -> str:
+        wanted = self.config.mysql_socket
+        if wanted and wanted != "auto":
+            candidates = [wanted]
+        else:
+            # The server's own configuration first, then the usual locations.
+            _, conf = self._run("my_print_defaults mysqld client 2>/dev/null | "
+                                "sed -n 's/^--socket=//p'")
+            candidates = [*conf.splitlines(), *SOCKET_CANDIDATES]
+        for path in dict.fromkeys(p for p in candidates if p):
+            code, _ = self._run(f"test -S {shlex.quote(path)}")
+            if code == 0:
+                return path
+        raise SshError("MySQL socket not found on the server (tried: "
+                       + ", ".join(dict.fromkeys(candidates)) + ").")
+
     def start(self) -> int:
         self._client = connect_client(self.config)
+        if self.config.mysql_socket:
+            self.socket_path = self._find_socket()
         self._server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server.bind(("127.0.0.1", 0))      # local only, random free port
         self._server.listen(8)
         self._server.settimeout(0.5)
         self.local_port = self._server.getsockname()[1]
         threading.Thread(target=self._accept_loop, name="ssh-tunnel", daemon=True).start()
-        log.info("SSH tunnel 127.0.0.1:%d -> %s:%d via %s", self.local_port, *self.remote,
+        target = self.socket_path or f"{self.remote[0]}:{self.remote[1]}"
+        log.info("SSH tunnel 127.0.0.1:%d -> %s via %s", self.local_port, target,
                  self.config.host)
         return self.local_port
+
+    def _open_channel(self, peer):
+        transport = self._client.get_transport()
+        if not self.socket_path:
+            return transport.open_channel("direct-tcpip", self.remote, peer)
+        chan = transport.open_session()
+        chan.exec_command(socket_bridge_command(self.socket_path))
+        return chan
 
     def stop(self) -> None:
         self._stop.set()
@@ -129,8 +201,7 @@ class SshTunnel:
             except OSError:
                 return  # server socket closed by stop()
             try:
-                chan = self._client.get_transport().open_channel("direct-tcpip", self.remote,
-                                                                 peer)
+                chan = self._open_channel(peer)
             except Exception as exc:  # noqa: BLE001
                 log.warning("SSH tunnel could not open a channel: %s", exc)
                 sock.close()

@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 ### Added
+- **SSH + server MySQL socket** connection mode (GUI *Connect via*, CLI
+  `--ssh-mysql-socket [PATH]`): relays each connection to MySQL's unix socket
+  through a Python (or socat / nc -U) bridge run on the server, so `root` with
+  unix_socket authentication logs in like `mysql -uroot`. Socket auto-detected
+  from `my_print_defaults` and the usual paths. Profiles remember the mode.
+
+### Fixed
+- SSH mode: a MySQL host equal to the SSH host is treated as 127.0.0.1 (MariaDB
+  saw a remote login from the server's LAN IP, e.g. `root@192.168.1.106`); the
+  GUI moves it automatically; 1045 hints now point to the socket mode.
 - SSH tunnel on **Templates / New DB** and **Migrate / Restore** (shared
   `gui/ssh_fields.py` widget, also used by Data source); CLI `--ssh-*` on
   `init-db`/`restore`, `--target-ssh-*` on `migrate`.

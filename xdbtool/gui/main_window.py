@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
         prof_row.addWidget(del_btn)
 
         form.addRow("Profile:", self._wrap(prof_row))
-        self.src_ssh = SshFields(form, self.in_host)
+        self.src_ssh = SshFields(form, self.in_host, port_edit=self.in_port)
         self.src_ssh.add_rows()
         form.addRow("Host:", self.in_host)
         form.addRow("Port:", self.in_port)
@@ -257,7 +257,7 @@ class MainWindow(QMainWindow):
 
         form.addRow("Template:", self._wrap(tmpl_row))
         form.addRow("", reg)
-        self.t_ssh = SshFields(form, self.t_host, "Target host:")
+        self.t_ssh = SshFields(form, self.t_host, "Target host:", self.t_port)
         self.t_ssh.add_rows()
         form.addRow("Target host:", self.t_host)
         form.addRow("Target port:", self.t_port)
@@ -392,7 +392,7 @@ class MainWindow(QMainWindow):
         self.m_pass.setEchoMode(QLineEdit.Password)
         self.m_db = QLineEdit()
         form.addRow(QLabel("<b>Target server</b> (data is written here)"))
-        self.m_ssh = SshFields(form, self.m_host)
+        self.m_ssh = SshFields(form, self.m_host, port_edit=self.m_port)
         self.m_ssh.add_rows()
         form.addRow("Host:", self.m_host)
         form.addRow("Port:", self.m_port)
@@ -981,7 +981,7 @@ class MainWindow(QMainWindow):
         s.user.setText(p.ssh_user)
         s.key.setText(p.ssh_key)
         s.password.setText(p.ssh_password)
-        s.set_enabled(p.use_ssh)
+        s.set_mode(("socket" if p.ssh_socket else "ssh") if p.use_ssh else "direct")
 
     def _save_profile(self) -> None:
         s = self.src_ssh
@@ -992,7 +992,8 @@ class MainWindow(QMainWindow):
             name=name, host=self.in_host.text(), port=self.in_port.value(),
             user=self.in_user.text(), database=self.in_db.text(),
             password=self.in_pass.text(), save_password=self.save_pass.isChecked(),
-            use_ssh=ssh, ssh_host=s.host.text().strip(), ssh_port=s.port.value(),
+            use_ssh=ssh, ssh_socket=s.mode == "socket", ssh_host=s.host.text().strip(),
+            ssh_port=s.port.value(),
             ssh_user=s.user.text().strip(), ssh_key=s.key.text().strip(),
             ssh_password=s.password.text(),
         )

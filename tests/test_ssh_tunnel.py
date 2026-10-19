@@ -176,3 +176,84 @@ def test_cli_init_db_stops_on_panel_drop(monkeypatch, capsys):
                "--target-database", "xui", "--drop", "--ssh-host", "192.0.2.10"])
     assert rc == 2 and "--allow-drop-panel" in capsys.readouterr().err
     assert seen["allow_drop_panel"] is False and seen["ssh"].host == "192.0.2.10"
+
+
+class _Out:
+    def __init__(self, text, code):
+        self._text = text.encode()
+        self.channel = type("C", (), {"recv_exit_status": lambda _self: code})()
+
+    def read(self):
+        return self._text
+
+
+class SocketClient(FakeClient):
+    """Answers the socket-detection commands; the session channel echoes."""
+
+    def __init__(self, existing):
+        super().__init__()
+        self.existing = existing
+        self.commands: list[str] = []
+        self.transport.open_session = self._open_session
+
+    def exec_command(self, command, timeout=None):
+        self.commands.append(command)
+        if command.startswith("my_print_defaults"):
+            return None, _Out("/var/run/mysqld/custom.sock\n", 0), None
+        path = command.split()[-1].strip("'")
+        return None, _Out("", 0 if path in self.existing else 1), None
+
+    def _open_session(self):
+        chan = self.transport.open_channel("session", None, None)
+        bridge = self
+
+        class Session:
+            def exec_command(self, cmd):
+                bridge.commands.append(cmd)
+
+            def __getattr__(self, name):
+                return getattr(chan, name)
+
+        return Session()
+
+
+def test_socket_mode_detects_socket_and_bridges(monkeypatch):
+    client = SocketClient(existing={"/run/mysqld/mysqld.sock"})
+    monkeypatch.setattr(ssh_remote, "connect_client", lambda cfg: client)
+    with SshTunnel(SshConfig(host="xui.example", mysql_socket="auto")) as tunnel:
+        assert tunnel.socket_path == "/run/mysqld/mysqld.sock"
+        with socket.create_connection(("127.0.0.1", tunnel.local_port), timeout=5) as s:
+            s.sendall(b"ping")
+            assert s.recv(100) == b"PING"
+    bridge = client.commands[-1]
+    assert "python3" in bridge and "/run/mysqld/mysqld.sock" in bridge
+    # The server's own configured socket is tried before the usual locations.
+    tried = [c for c in client.commands if c.startswith("test -S")]
+    assert tried[0] == "test -S /var/run/mysqld/custom.sock"
+
+
+def test_socket_mode_reports_missing_socket(monkeypatch):
+    client = SocketClient(existing=set())
+    monkeypatch.setattr(ssh_remote, "connect_client", lambda cfg: client)
+    with pytest.raises(SshError, match="socket not found"):
+        SshTunnel(SshConfig(host="h", mysql_socket="auto")).start()
+
+
+def test_ssh_host_typed_as_mysql_host_becomes_localhost(monkeypatch):
+    targets = []
+
+    class RecordingTunnel:
+        def __init__(self, cfg, host, port):
+            targets.append((host, port))
+
+        def start(self):
+            raise SshError("stop here")
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(ssh_remote, "SshTunnel", RecordingTunnel)
+    cfg = ConnectionConfig(host="192.168.1.106", ssh=SshConfig(host="192.168.1.106"))
+    with pytest.raises(SourceError):
+        MySQLSource(cfg).open()
+    assert targets == [("127.0.0.1", 3306)]

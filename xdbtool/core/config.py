@@ -44,6 +44,7 @@ class ConnectionProfile:
     save_password: bool = False
     # Optional SSH tunnel to reach a MySQL that only accepts local connections.
     use_ssh: bool = False
+    ssh_socket: bool = False  # SSH via the server's MySQL socket
     ssh_host: str = ""
     ssh_port: int = 22
     ssh_user: str = "root"

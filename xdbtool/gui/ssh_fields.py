@@ -21,18 +21,28 @@ from ..core.ssh_remote import SshConfig
 class SshFields:
     """Adds a connection-mode combo and an SSH row to a ``QFormLayout``.
 
-    In SSH mode the form's MySQL host field is relabelled "MySQL host (on server)"
-    and, the first time, its value moves to the SSH host (MySQL becomes 127.0.0.1),
-    since the address the user typed is the server itself.
+    Modes: direct MySQL; SSH + the server's MySQL socket (logs in like `mysql -uroot`
+    typed on the server — works for root with unix_socket auth, no password); and
+    SSH tunnel to MySQL's TCP port on 127.0.0.1. In the SSH modes the address the
+    user typed as MySQL host is the server itself, so it moves to the SSH host and
+    MySQL becomes 127.0.0.1; with the socket the MySQL host/port rows are hidden.
     """
 
-    def __init__(self, form: QFormLayout, host_edit: QLineEdit, host_label: str = "Host:"):
+    MODES = (
+        ("direct", "Direct MySQL connection"),
+        ("socket", "SSH + server MySQL socket (like `mysql -uroot` on the server)"),
+        ("ssh", "SSH tunnel to MySQL TCP 127.0.0.1 (password users)"),
+    )
+
+    def __init__(self, form: QFormLayout, host_edit: QLineEdit, host_label: str = "Host:",
+                 port_edit: QWidget | None = None):
         self.form = form
         self.host_edit = host_edit
+        self.port_edit = port_edit
         self.host_label = host_label
         self.via = QComboBox()
-        self.via.addItem("Direct MySQL connection", "direct")
-        self.via.addItem("SSH tunnel (MySQL only accepts local connections)", "ssh")
+        for key, label in self.MODES:
+            self.via.addItem(label, key)
         self.host = QLineEdit()
         self.host.setPlaceholderText("server IP, e.g. 192.168.1.106")
         self.port = QSpinBox()
@@ -63,21 +73,32 @@ class SshFields:
         self._on_mode(0)
 
     @property
-    def enabled(self) -> bool:
-        return self.via.currentData() == "ssh"
+    def mode(self) -> str:
+        return self.via.currentData()
 
-    def set_enabled(self, on: bool) -> None:
-        self.via.setCurrentIndex(1 if on else 0)
+    @property
+    def enabled(self) -> bool:
+        return self.mode != "direct"
+
+    def set_mode(self, mode: str) -> None:
+        idx = self.via.findData(mode)
+        self.via.setCurrentIndex(max(idx, 0))
 
     def _on_mode(self, _idx: int) -> None:
-        ssh = self.enabled
+        ssh, sock = self.enabled, self.mode == "socket"
         self.form.setRowVisible(self.row_widget, ssh)
+        for w in (self.host_edit, self.port_edit):
+            if w is not None and self.form.indexOf(w) >= 0:
+                self.form.setRowVisible(w, not sock)
         label = self.form.labelForField(self.host_edit)
         if label is not None:
             label.setText("MySQL host (on server):" if ssh else self.host_label)
-        if ssh and not self.host.text().strip():
-            self.host.setText(self.host_edit.text().strip())
-            self.host_edit.setText("127.0.0.1")
+        typed = self.host_edit.text().strip()
+        if ssh and typed not in ("", "127.0.0.1", "localhost"):
+            if not self.host.text().strip():
+                self.host.setText(typed)
+            if typed == self.host.text().strip():
+                self.host_edit.setText("127.0.0.1")
 
     def config(self) -> SshConfig | None:
         """The SSH settings, or ``None`` in direct mode. Raises if the host is empty."""
@@ -85,7 +106,8 @@ class SshFields:
             return None
         cfg = SshConfig(host=self.host.text().strip(), port=self.port.value(),
                         user=self.user.text().strip() or "root",
-                        password=self.password.text(), key_file=self.key.text().strip())
+                        password=self.password.text(), key_file=self.key.text().strip(),
+                        mysql_socket="auto" if self.mode == "socket" else "")
         if not cfg.host:
             raise ValueError("Enter the SSH host.")
         return cfg

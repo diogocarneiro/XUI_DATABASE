@@ -56,10 +56,16 @@ _CONNECT_HINTS = {
     1045: "\n\nWrong user/password, or this user is not allowed from your IP address.",
 }
 _SSH_HINTS = {
-    1045: ("\n\nOver SSH the connection comes from 127.0.0.1. Use the MySQL user/password "
-           "from the panel's config (XUI: /home/xui/config/config.ini); root usually only "
-           "works through the server's local socket, not TCP."),
+    1045: ("\n\nOver an SSH TCP tunnel the login comes from 127.0.0.1. If `mysql -uroot` works "
+           "on the server without a password, choose 'SSH + server MySQL socket' instead "
+           "(root uses unix_socket auth, which never works over TCP). Otherwise use the "
+           "panel's MySQL user (XUI: /home/xui/config/config.ini)."),
     1130: "\n\nThis MySQL user is not allowed from 127.0.0.1 on the server.",
+}
+_SOCKET_HINTS = {
+    1045: ("\n\nThrough the server socket MariaDB authenticates as the SSH user's account: "
+           "with SSH user root, leave the MySQL password blank and use user root "
+           "(like `mysql -uroot`), or give the password of a localhost MySQL user."),
 }
 
 
@@ -114,7 +120,11 @@ class MySQLSource(DataSource):
         if self.config.ssh is not None:
             from .ssh_remote import SshError, SshTunnel
 
-            tunnel = SshTunnel(self.config.ssh, host or "127.0.0.1", port)
+            # Through SSH the server reaches its own MySQL locally; its LAN address
+            # would make MariaDB see a remote login from that IP.
+            if not host or host == self.config.ssh.host:
+                host = "127.0.0.1"
+            tunnel = SshTunnel(self.config.ssh, host, port)
             try:
                 host, port = "127.0.0.1", tunnel.start()
             except SshError as exc:
@@ -137,7 +147,12 @@ class MySQLSource(DataSource):
         except Exception as exc:  # noqa: BLE001 - normalise to SourceError
             self._close_tunnel()
             code = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
-            hint = _SSH_HINTS.get(code, "") if self.config.ssh else _CONNECT_HINTS.get(code, "")
+            if self.config.ssh is None:
+                hint = _CONNECT_HINTS.get(code, "")
+            elif getattr(self.config.ssh, "mysql_socket", ""):
+                hint = _SOCKET_HINTS.get(code, "")
+            else:
+                hint = _SSH_HINTS.get(code, "")
             raise SourceError(f"Could not connect: {exc}{hint}") from exc
 
     def close(self) -> None:

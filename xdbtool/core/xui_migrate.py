@@ -46,6 +46,9 @@ LOG_TABLES = frozenset({
 
 # Tables that should exist in any Xtream Codes v2-family database.
 REQUIRED_TABLES = ("users", "streams")
+# Tables that only exist in XUI.one. Note XUI.one *also* has `users` (its admins and
+# resellers, the old `reg_users`), so `users` alone does not mean Xtream Codes.
+XUI_ONE_MARKERS = frozenset({"lines", "access_codes", "hmac_keys", "users_groups", "lines_live"})
 # Tables reported after loading so the user can sanity-check the content.
 KEY_TABLES = (
     "users", "reg_users", "member_groups", "packages", "streams", "stream_categories",
@@ -134,10 +137,13 @@ def prepare_dump(text: str, *, skip_logs: bool = True, force: bool = False) -> P
     if not out.tables:
         raise XuiMigrateError("No CREATE TABLE statements found — is this a mysqldump file?")
     problems: list[str] = []
-    if "lines" in present and "users" not in present:
-        problems.append("This looks like an XUI.one database (`lines` table, no `users`). "
-                        "xui_migrate expects an Xtream UI / ZapX / StreamCreed / XC v2 dump; "
-                        "use `restore` or `migrate` for XUI-to-XUI copies.")
+    xui_hits = sorted(present & XUI_ONE_MARKERS)
+    if "lines" in present or len(xui_hits) >= 2:
+        problems.append(
+            f"This is an XUI.one backup (has {', '.join(xui_hits)}), not an Xtream UI / ZapX "
+            "/ StreamCreed / XC v2 dump - XUI will answer \"Can't migrate from XUI to XUI\". "
+            "Restore it with XUI's own Backups page or `restore` into the `xui` database."
+        )
     missing = [t for t in REQUIRED_TABLES if t not in present]
     if missing:
         problems.append(f"Missing core Xtream Codes tables: {', '.join(missing)}.")

@@ -42,8 +42,12 @@ INSERT INTO `user_activity` VALUES (1,1),(2,2);
 INSERT INTO `user_activity` VALUES (3,1);
 """
 
+# XUI.one keeps `users` too (admins/resellers), alongside `lines` (subscribers).
 XUI_ONE_DUMP = """\
+CREATE TABLE `access_codes` (`id` int(11) NOT NULL);
 CREATE TABLE `lines` (`id` int(11) NOT NULL);
+CREATE TABLE `users` (`id` int(11) NOT NULL);
+CREATE TABLE `users_groups` (`group_id` int(11) NOT NULL);
 CREATE TABLE `streams` (`id` int(11) NOT NULL);
 """
 
@@ -70,8 +74,11 @@ def test_keep_logs():
 
 
 def test_rejects_xui_one_dump_unless_forced():
-    with pytest.raises(XuiMigrateError, match="XUI.one"):
+    with pytest.raises(XuiMigrateError, match="XUI.one backup"):
         prepare_dump(XUI_ONE_DUMP)
+    # Even without `lines`, two XUI-only tables are enough to tell.
+    with pytest.raises(XuiMigrateError, match="XUI.one backup"):
+        prepare_dump(XUI_ONE_DUMP.replace("`lines`", "`lines_x`"))
     p = prepare_dump(XUI_ONE_DUMP, force=True)
     assert p.warnings
 
@@ -238,7 +245,7 @@ def test_stage_via_ssh(fake_ssh):
     from xdbtool.core.ssh_remote import SshConfig
     from xdbtool.core.xui_migrate import stage_via_ssh
 
-    result = stage_via_ssh(SshConfig(host="192.168.1.106"), prepare_dump(XC_DUMP),
+    result = stage_via_ssh(SshConfig(host="xui.example"), prepare_dump(XC_DUMP),
                            mysql_user="xuiuser", mysql_password="s3cret", drop_existing=True)
     ssh = fake_ssh.last
     assert ssh.creds == ("xuiuser", "s3cret")

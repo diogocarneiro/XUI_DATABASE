@@ -28,6 +28,22 @@ pip install -r requirements-dev.txt
 - Treat panel data as the owner's. Do not add features that decrypt, crack or
   otherwise defeat stored credentials; migration copies hashes verbatim.
 
+## Translations
+
+User-facing text is written in English and wrapped in `_()` (from `xdbtool.i18n`);
+module-level constants use `N_()` and are translated where shown. Placeholders are
+named, never positional: `_("{table}: {count} rows", table=t, count=n)`.
+
+After adding or changing text:
+
+```bash
+python -m xdbtool.i18n.extract            # lists missing/unused per language
+python -m xdbtool.i18n.extract --update   # adds missing keys (English) to each catalog
+```
+
+then translate the new entries in `xdbtool/i18n/locales/{pt,fr,es,it}.json`.
+`tests/test_i18n.py` fails if any message is untranslated or a placeholder differs.
+
 ## Adding support for another panel
 
 1. Add a `PanelProfile` to `PROFILES` in `core/profiles.py` with its signature

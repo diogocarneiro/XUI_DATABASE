@@ -31,6 +31,7 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..i18n import N_, _
 from .dump_source import SqlDumpSource
 from .exporter import _sql_literal
 from .logger import get_logger
@@ -51,7 +52,7 @@ OPTIONAL_SYSTEM_TABLES = ("access_codes", "settings", "servers")
 # Runtime state of the target installation: always kept.
 RUNTIME_TABLES = frozenset({"crontab", "migrations", "queue", "signals"})
 SYSTEM_TABLES = frozenset(OPTIONAL_SYSTEM_TABLES) | RUNTIME_TABLES
-ACCESS_CODE_TYPES = {0: "admin", 1: "reseller", 2: "ministra"}
+ACCESS_CODE_TYPES = {0: N_("admin"), 1: N_("reseller"), 2: "ministra"}
 XUI_TOOLS = "/home/xui/tools"
 LOG_TABLES = frozenset({
     "lines_logs", "lines_activity", "lines_live", "lines_divergence", "login_logs",
@@ -120,26 +121,26 @@ class ContentGroup:
 # XUI.one keeps every stream kind in `streams`, told apart by `type` (see the
 # `streams_types` table): 1 live, 2 movie, 3 created live, 4 radio, 5 series episode.
 CONTENT_GROUPS: dict[str, ContentGroup] = {
-    "live": ContentGroup("Live channels", frozenset({"recordings"}), frozenset({1, 3}),
+    "live": ContentGroup(N_("Live channels"), frozenset({"recordings"}), frozenset({1, 3}),
                          "live", "bouquet_channels"),
-    "movies": ContentGroup("Movies", stream_types=frozenset({2}), category_type="movie",
+    "movies": ContentGroup(N_("Movies"), stream_types=frozenset({2}), category_type="movie",
                            bouquet_column="bouquet_movies"),
-    "series": ContentGroup("Series", frozenset({"streams_series", "streams_episodes"}),
+    "series": ContentGroup(N_("Series"), frozenset({"streams_series", "streams_episodes"}),
                            frozenset({5}), "series", "bouquet_series"),
-    "radio": ContentGroup("Radio stations", stream_types=frozenset({4}), category_type="radio",
+    "radio": ContentGroup(N_("Radio stations"), stream_types=frozenset({4}), category_type="radio",
                           bouquet_column="bouquet_radios"),
-    "bouquets": ContentGroup("Bouquets", frozenset({"bouquets"})),
-    "lines": ContentGroup("Lines, MAG & Enigma2 devices", frozenset({
+    "bouquets": ContentGroup(N_("Bouquets"), frozenset({"bouquets"})),
+    "lines": ContentGroup(N_("Lines, MAG & Enigma2 devices"), frozenset({
         "lines", "mag_devices", "enigma2_devices", "mag_claims", "enigma2_actions"})),
-    "resellers": ContentGroup("Admins, resellers, groups & packages", frozenset({
+    "resellers": ContentGroup(N_("Admins, resellers, groups & packages"), frozenset({
         "users", "users_groups", "users_packages", "users_credits_logs", "tickets",
         "tickets_replies"})),
-    "epg": ContentGroup("EPG", frozenset({
+    "epg": ContentGroup(N_("EPG"), frozenset({
         "epg", "epg_channels", "epg_data", "epg_api", "epg_languages"})),
-    "security": ContentGroup("Blocked IPs/ISPs/ASNs/UAs, RTMP IPs, API keys", frozenset({
+    "security": ContentGroup(N_("Blocked IPs/ISPs/ASNs/UAs, RTMP IPs, API keys"), frozenset({
         "blocked_asns", "blocked_ips", "blocked_isps", "blocked_uas", "rtmp_ips",
         "hmac_keys"})),
-    "other": ContentGroup("Everything else (providers, profiles, watch folders...)"),
+    "other": ContentGroup(N_("Everything else (providers, profiles, watch folders...)")),
 }
 STREAM_GROUPS = ("live", "movies", "series", "radio")
 # Tables shared by all stream kinds; partially replaced when only some are chosen.
@@ -165,34 +166,40 @@ class ImportPlan:
     keep_checks: list[tuple[str, str, str, set]] = field(default_factory=list)
 
     def summary_lines(self) -> list[str]:
-        labels = ", ".join(CONTENT_GROUPS[g].label for g in self.content)
-        lines = [f"Content: {labels or 'nothing'}",
-                 f"Tables to replace: {len(self.plan.transferable)}"]
+        labels = ", ".join(_(CONTENT_GROUPS[g].label) for g in self.content)
+        lines = [_("Content: {labels}", labels=labels or _("nothing")),
+                 _("Tables to replace: {count}", count=len(self.plan.transferable))]
         for m in self.plan.transferable:
-            extra = f", {len(m.source_only)} backup-only cols dropped" if m.source_only else ""
-            how = " (added to the target's rows)" if m.table in self.append_only else ""
+            text = _("{table}: {count} rows", table=m.table, count=self.rows.get(m.table, 0))
+            if m.source_only:
+                text += ", " + _("{count} backup-only cols dropped", count=len(m.source_only))
             if m.table in self.delete_sql:
-                how = " (only the chosen kinds are replaced)"
-            lines.append(f"  {m.table}: {self.rows.get(m.table, 0)} rows{extra}{how}")
+                text += " " + _("(only the chosen kinds are replaced)")
+            elif m.table in self.append_only:
+                text += " " + _("(added to the target's rows)")
+            lines.append("  " + text)
         lines.extend(self.notes)
         if self.not_chosen:
-            lines.append(f"Not chosen, left as they are: {', '.join(self.not_chosen)}")
+            lines.append(_("Not chosen, left as they are: {tables}",
+                           tables=", ".join(self.not_chosen)))
         if self.kept_target:
-            lines.append(f"Kept from the target (system): {', '.join(self.kept_target)}")
+            lines.append(_("Kept from the target (system): {tables}",
+                           tables=", ".join(self.kept_target)))
         if self.skipped_logs:
-            lines.append(f"Logs/stats skipped: {', '.join(self.skipped_logs)}")
+            lines.append(_("Logs/stats skipped: {tables}", tables=", ".join(self.skipped_logs)))
         if self.plan.missing_in_target:
-            lines.append("Not in target XUI (skipped): " + ", ".join(self.plan.missing_in_target))
+            lines.append(_("Not in target XUI (skipped): {tables}",
+                           tables=", ".join(self.plan.missing_in_target)))
         return lines
 
 
 def check_source(source: DataSource) -> None:
     tables = {t.lower() for t in source.list_tables()}
     if "lines" not in tables:
-        raise XuiImportError(
+        raise XuiImportError(_(
             "This dump has no `lines` table, so it is not an XUI.one backup. For Xtream UI / "
             "ZapX / StreamCreed / XC v2 dumps use the xui_migrate staging instead."
-        )
+        ))
 
 
 def _move_to_main(main_id: int) -> tuple[RowFilter, RowFilter]:
@@ -319,7 +326,7 @@ def build_import(
     partial_streams = 0 < len(stream_chosen) < len(STREAM_GROUPS)
     check_source(source)
     if "lines" not in {t.lower() for t in target_schema}:
-        raise XuiImportError("The target database has no `lines` table — is it XUI.one?")
+        raise XuiImportError(_("The target database has no `lines` table — is it XUI.one?"))
     if server_mode not in SERVER_MODES:
         raise ValueError(f"server_mode must be one of {SERVER_MODES}")
     chosen = {t.lower() for t in import_tables}
@@ -352,25 +359,27 @@ def build_import(
                      content=[g for g in CONTENT_GROUPS if g in groups])
 
     if servers_imported:
-        imp.notes.append("Servers replaced by the backup's (old server IPs; fix the main "
-                         "server's IP in the panel if it changed).")
+        imp.notes.append(_("Servers replaced by the backup's (old server IPs; fix the main "
+                           "server's IP in the panel if it changed)."))
     elif server_mode == "main":
         imp.row_filters["streams_servers"], imp.row_filters["streams"] = _move_to_main(
             target_main_id)
-        imp.notes.append(f"All streams are moved to this XUI's main server (id {target_main_id}).")
+        imp.notes.append(_("All streams are moved to this XUI's main server (id {id}).",
+                           id=target_main_id))
     elif "servers" in src_names:
         taken = set(target_server_ids)
         extra = [r for r in source.iter_rows(src_names["servers"]) if not r.get("is_main")]
         clash = sorted(r.get("id") for r in extra if r.get("id") in taken)
         if clash:
-            raise XuiImportError(
-                f"Load-balancer ids {clash} already exist on the target XUI; remove those "
-                "servers there first, or move the streams to the main server instead."
-            )
+            raise XuiImportError(_(
+                "Load-balancer ids {ids} already exist on the target XUI; remove those "
+                "servers there first, or move the streams to the main server instead.",
+                ids=clash))
         imp.append_only.add(next(m.table for m in plan.mappings if m.table.lower() == "servers"))
         imp.row_filters["servers"] = lambda rows: (r for r in rows if not r.get("is_main"))
         names = ", ".join(str(r.get("server_name") or r.get("id")) for r in extra)
-        imp.notes.append(f"Load balancers added as extra servers (reinstall them): {names}")
+        imp.notes.append(_("Load balancers added as extra servers (reinstall them): {names}",
+                           names=names))
 
     if partial_streams:
         _apply_content(imp, source, set(stream_chosen))
@@ -378,12 +387,13 @@ def build_import(
         cleared = [CONTENT_GROUPS[g].bouquet_column for g in STREAM_GROUPS
                    if g not in stream_chosen]
         imp.row_filters["bouquets"] = _bouquet_filter(cleared)
-        imp.notes.append(f"Bouquets imported without {', '.join(cleared)} (content not chosen).")
+        imp.notes.append(_("Bouquets imported without {columns} (content not chosen).",
+                           columns=", ".join(cleared)))
     if "lines" in groups and "bouquets" not in groups:
-        imp.notes.append("Note: lines keep the backup's bouquet ids; import bouquets too unless "
-                         "this XUI has the same bouquets.")
+        imp.notes.append(_("Note: lines keep the backup's bouquet ids; import bouquets too "
+                           "unless this XUI has the same bouquets."))
     if "lines" in groups and "resellers" not in groups:
-        imp.notes.append("Note: lines keep their backup owner (member_id) and package ids.")
+        imp.notes.append(_("Note: lines keep their backup owner (member_id) and package ids."))
 
     for m in plan.transferable:
         f = imp.row_filters.get(m.table.lower())
@@ -640,36 +650,37 @@ def _check_kept_rows(ssh, database: str, imp: ImportPlan) -> None:
                        if i is not None)
         if clash:
             shown = ", ".join(str(i) for i in clash[:10]) + (" ..." if len(clash) > 10 else "")
-            raise XuiImportError(
-                f"{len(clash)} id(s) in `{table}` ({shown}) are used on this XUI by content "
-                "you are keeping. Import those kinds too, or remove them from this XUI first."
-            )
+            raise XuiImportError(_(
+                "{count} id(s) in `{table}` ({ids}) are used on this XUI by content you are "
+                "keeping. Import those kinds too, or remove them from this XUI first.",
+                count=len(clash), table=table, ids=shown))
 
 
 def report_lines(result: dict) -> list[str]:
     """Human-readable outcome of :func:`import_via_ssh` (shared by CLI and GUI)."""
     lines: list[str] = []
     if result.get("backup"):
-        lines.append(f"Previous `{result['database']}` saved on the server: {result['backup']}")
+        lines.append(_("Previous `{db}` saved on the server: {path}",
+                       db=result["database"], path=result["backup"]))
     if result.get("row_counts"):
-        lines.append("Rows now in the panel:")
+        lines.append(_("Rows now in the panel:"))
         lines += [f"  {t:18} {n:>8}" for t, n in result["row_counts"].items()]
     if result.get("access_codes"):
-        lines.append("Access codes (panel URLs):")
+        lines.append(_("Access codes (panel URLs):"))
         for c in result["access_codes"]:
-            state = "" if c["enabled"] else "  [disabled]"
-            lines.append(f"  {c['type']:9} {c['url']}{state}")
+            state = "" if c["enabled"] else "  " + _("[disabled]")
+            lines.append(f"  {_(c['type']):9} {c['url']}{state}")
     rescue = result.get("rescue")
     if rescue:
         lines += [
-            "RESCUE ACCESS (save it now, the password is not stored anywhere):",
-            f"  URL      : {result.get('panel_base', '')}/{rescue.code}/",
-            f"  Username : {rescue.username}",
-            f"  Password : {rescue.password}",
-            "  Delete this rescue user/code in the panel once you are in.",
+            _("RESCUE ACCESS (save it now, the password is not stored anywhere):"),
+            "  " + _("URL: {url}", url=f"{result.get('panel_base', '')}/{rescue.code}/"),
+            "  " + _("Username: {user}", user=rescue.username),
+            "  " + _("Password: {password}", password=rescue.password),
+            "  " + _("Delete this rescue user/code in the panel once you are in."),
         ]
     if result.get("codes_refresh"):
-        lines.append(f"Access-code refresh: {result['codes_refresh']}")
+        lines.append(_("Access-code refresh: {result}", result=result["codes_refresh"]))
     return lines
 
 

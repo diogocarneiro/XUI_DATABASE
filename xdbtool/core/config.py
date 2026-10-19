@@ -98,3 +98,24 @@ def save_store(store: Store) -> None:
     data = {"profiles": [p.to_stored() for p in store.profiles]}
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
     log.info("Saved %d connection profile(s)", len(store.profiles))
+
+
+# -- app settings -----------------------------------------------------------
+def _settings_path() -> Path:
+    return config_dir() / "settings.json"
+
+
+def load_settings() -> dict:
+    """App preferences (e.g. ``{"language": "pt"}``); {} when absent or unreadable."""
+    path = _settings_path()
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not read settings: %s", exc)
+        return {}
+
+
+def save_settings(**changes) -> dict:
+    data = {**load_settings(), **changes}
+    _settings_path().write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return data

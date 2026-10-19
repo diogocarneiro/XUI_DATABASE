@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.ssh_remote import SshConfig
+from ..i18n import N_, _
 
 
 class SshFields:
@@ -29,37 +30,39 @@ class SshFields:
     """
 
     MODES = (
-        ("direct", "Direct MySQL connection"),
-        ("socket", "SSH + server MySQL socket (like `mysql -uroot` on the server)"),
-        ("ssh", "SSH tunnel to MySQL TCP 127.0.0.1 (password users)"),
+        ("direct", N_("Direct MySQL connection")),
+        ("socket", N_("SSH + server MySQL socket (like `mysql -uroot` on the server)")),
+        ("ssh", N_("SSH tunnel to MySQL TCP 127.0.0.1 (password users)")),
     )
 
-    def __init__(self, form: QFormLayout, host_edit: QLineEdit, host_label: str = "Host:",
+    def __init__(self, form: QFormLayout, host_edit: QLineEdit, host_label: str | None = None,
                  port_edit: QWidget | None = None):
         self.form = form
         self.host_edit = host_edit
         self.port_edit = port_edit
-        self.host_label = host_label
+        self.host_label = host_label or _("Host:")
         self.via = QComboBox()
         for key, label in self.MODES:
-            self.via.addItem(label, key)
+            self.via.addItem(_(label), key)
         self.host = QLineEdit()
-        self.host.setPlaceholderText("server IP, e.g. 192.168.1.106")
+        self.host.setPlaceholderText(_("server IP, e.g. 192.168.1.106"))
         self.port = QSpinBox()
         self.port.setRange(1, 65535)
         self.port.setValue(22)
         self.user = QLineEdit("root")
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.Password)
-        self.password.setPlaceholderText("blank = SSH key / agent")
+        self.password.setPlaceholderText(_("blank = SSH key / agent"))
         self.key = QLineEdit()
-        self.key.setPlaceholderText("optional private key file")
+        self.key.setPlaceholderText(_("optional private key file"))
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        for label, widget, stretch in (("Host:", self.host, 3), ("Port:", self.port, 0),
-                                       ("User:", self.user, 1), ("Password:", self.password, 2),
-                                       ("Key:", self.key, 2)):
+        for label, widget, stretch in ((_("Host:"), self.host, 3),
+                                       (_("Port:"), self.port, 0),
+                                       (_("User:"), self.user, 1),
+                                       (_("Password:"), self.password, 2),
+                                       (_("Key:"), self.key, 2)):
             row.addWidget(QLabel(label))
             row.addWidget(widget, stretch)
         self.row_widget = QWidget()
@@ -67,7 +70,7 @@ class SshFields:
 
     def add_rows(self) -> None:
         """Append the two rows to the form (call before adding the host row)."""
-        self.form.addRow("Connect via:", self.via)
+        self.form.addRow(_("Connect via:"), self.via)
         self.form.addRow("SSH:", self.row_widget)
         self.via.currentIndexChanged.connect(self._on_mode)
         self._on_mode(0)
@@ -92,7 +95,7 @@ class SshFields:
                 self.form.setRowVisible(w, not sock)
         label = self.form.labelForField(self.host_edit)
         if label is not None:
-            label.setText("MySQL host (on server):" if ssh else self.host_label)
+            label.setText(_("MySQL host (on server):") if ssh else self.host_label)
         typed = self.host_edit.text().strip()
         if ssh and typed not in ("", "127.0.0.1", "localhost"):
             if not self.host.text().strip():
@@ -109,5 +112,5 @@ class SshFields:
                         password=self.password.text(), key_file=self.key.text().strip(),
                         mysql_socket="auto" if self.mode == "socket" else "")
         if not cfg.host:
-            raise ValueError("Enter the SSH host.")
+            raise ValueError(_("Enter the SSH host."))
         return cfg

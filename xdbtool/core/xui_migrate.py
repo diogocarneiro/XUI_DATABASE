@@ -30,6 +30,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..i18n import _
 from .dump_source import _CREATE_RE, _INSERT_RE, _iter_statements, read_sql_text
 from .logger import get_logger
 from .mysql_source import _quote_ident
@@ -83,15 +84,15 @@ class PreparedDump:
     warnings: list[str] = field(default_factory=list)
 
     def summary_lines(self) -> list[str]:
-        lines = [f"Tables in dump : {len(self.tables)}",
-                 f"Statements     : {len(self.statements)}"]
+        lines = [_("Tables in dump: {count}", count=len(self.tables)),
+                 _("Statements: {count}", count=len(self.statements))]
         if self.source_databases:
-            lines.append(f"Original DB    : {', '.join(self.source_databases)} "
-                         f"(redirected to `{MIGRATE_DB}`)")
+            lines.append(_("Original DB: {names} (redirected to `{db}`)",
+                           names=", ".join(self.source_databases), db=MIGRATE_DB))
         if self.skipped_inserts:
             skipped = ", ".join(f"{t} ({n})" for t, n in sorted(self.skipped_inserts.items()))
-            lines.append(f"Log data skipped (INSERT statements): {skipped}")
-        lines.extend(f"WARNING: {w}" for w in self.warnings)
+            lines.append(_("Log data skipped (INSERT statements): {tables}", tables=skipped))
+        lines.extend(_("WARNING: {message}", message=w) for w in self.warnings)
         return lines
 
 
@@ -108,10 +109,10 @@ def prepare_dump(text: str, *, skip_logs: bool = True, force: bool = False) -> P
         if not s:
             continue
         if s[:9].upper() == "DELIMITER":
-            raise XuiMigrateError(
+            raise XuiMigrateError(_(
                 "The dump contains stored routines/triggers (DELIMITER). Re-export it "
                 "without --routines/--triggers; XUI does not need them."
-            )
+            ))
         if _DB_DIRECTIVE.match(s):
             m = _DB_NAME.search(s)
             if m and m.group(1) not in out.source_databases:
@@ -135,20 +136,21 @@ def prepare_dump(text: str, *, skip_logs: bool = True, force: bool = False) -> P
 
     present = {t.lower() for t in out.tables}
     if not out.tables:
-        raise XuiMigrateError("No CREATE TABLE statements found — is this a mysqldump file?")
+        raise XuiMigrateError(_("No CREATE TABLE statements found — is this a mysqldump file?"))
     problems: list[str] = []
     xui_hits = sorted(present & XUI_ONE_MARKERS)
     if "lines" in present or len(xui_hits) >= 2:
-        problems.append(
-            f"This is an XUI.one backup (has {', '.join(xui_hits)}), not an Xtream UI / ZapX "
-            "/ StreamCreed / XC v2 dump - XUI will answer \"Can't migrate from XUI to XUI\". "
-            "Use 'Import XUI.one backup' (CLI: xui-import) to bring it into XUI instead."
-        )
+        problems.append(_(
+            "This is an XUI.one backup (has {tables}), not an Xtream UI / ZapX / StreamCreed "
+            "/ XC v2 dump - XUI will answer \"Can't migrate from XUI to XUI\". Use 'Import "
+            "XUI.one backup' (CLI: xui-import) to bring it into XUI instead.",
+            tables=", ".join(xui_hits)))
     missing = [t for t in REQUIRED_TABLES if t not in present]
     if missing:
-        problems.append(f"Missing core Xtream Codes tables: {', '.join(missing)}.")
+        problems.append(_("Missing core Xtream Codes tables: {tables}.",
+                          tables=", ".join(missing)))
     if problems and not force:
-        raise XuiMigrateError(" ".join(problems) + " (use force to load it anyway)")
+        raise XuiMigrateError(" ".join(problems) + " " + _("(use force to load it anyway)"))
     out.warnings.extend(problems)
     return out
 

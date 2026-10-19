@@ -230,6 +230,17 @@ Admin/reseller accounts (`users`) come from the backup, so log in with the old
 panel's admin credentials afterwards. Restart XUI on the server so it reloads its
 caches. The same is in the GUI **XUI Migration** tab (*Import an XUI.one backup*).
 
+## Languages
+
+The interface is available in **Português** (default), **English**, **Français**,
+**Español** and **Italiano** — switch in the GUI menu *Idioma / Language*; the
+choice is remembered. The CLI prints English (stable for scripts and logs) unless
+`--lang pt|en|fr|es|it` is given:
+
+```bash
+python -m xdbtool --lang pt xui-import backup.sql --ssh-host 192.168.1.106 --plan-only
+```
+
 ## Project layout
 
 ```
@@ -248,6 +259,7 @@ xdbtool/
     xui_import.py   # XUI.one → XUI.one import (schema-aware, keeps system tables)
     config.py       # connection profiles (user config dir)
   gui/            # PySide6 interface
+  i18n/           # translations: _() helper, locales/{pt,fr,es,it}.json, extract.py
   __main__.py     # CLI + GUI entry point
 tests/            # pytest suite (runs fully offline)
 ```

@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from ..i18n import N_, _
 from .logger import get_logger
 from .source import ColumnInfo, DataSource, SourceError, TableInfo
 
@@ -47,25 +48,25 @@ class ConnectionConfig:
         return d
 
 
+# Extra explanations appended to connection errors, by MySQL error code.
 _CONNECT_HINTS = {
-    1130: (
-        "\n\nThe server only accepts this MySQL user from its own machine (normal on "
-        "XUI.one). Use the SSH connection mode, an SSH tunnel "
-        "(ssh -L 3307:127.0.0.1:3306 root@server), or run a generated script on the server."
-    ),
-    1045: "\n\nWrong user/password, or this user is not allowed from your IP address.",
+    1130: N_("The server only accepts this MySQL user from its own machine (normal on "
+             "XUI.one). Use the SSH connection mode, an SSH tunnel "
+             "(ssh -L 3307:127.0.0.1:3306 root@server), or run a generated script on the "
+             "server."),
+    1045: N_("Wrong user/password, or this user is not allowed from your IP address."),
 }
 _SSH_HINTS = {
-    1045: ("\n\nOver an SSH TCP tunnel the login comes from 127.0.0.1. If `mysql -uroot` works "
-           "on the server without a password, choose 'SSH + server MySQL socket' instead "
-           "(root uses unix_socket auth, which never works over TCP). Otherwise use the "
-           "panel's MySQL user (XUI: /home/xui/config/config.ini)."),
-    1130: "\n\nThis MySQL user is not allowed from 127.0.0.1 on the server.",
+    1045: N_("Over an SSH TCP tunnel the login comes from 127.0.0.1. If `mysql -uroot` works "
+             "on the server without a password, choose 'SSH + server MySQL socket' instead "
+             "(root uses unix_socket auth, which never works over TCP). Otherwise use the "
+             "panel's MySQL user (XUI: /home/xui/config/config.ini)."),
+    1130: N_("This MySQL user is not allowed from 127.0.0.1 on the server."),
 }
 _SOCKET_HINTS = {
-    1045: ("\n\nThrough the server socket MariaDB authenticates as the SSH user's account: "
-           "with SSH user root, leave the MySQL password blank and use user root "
-           "(like `mysql -uroot`), or give the password of a localhost MySQL user."),
+    1045: N_("Through the server socket MariaDB authenticates as the SSH user's account: "
+             "with SSH user root, leave the MySQL password blank and use user root "
+             "(like `mysql -uroot`), or give the password of a localhost MySQL user."),
 }
 
 
@@ -79,10 +80,10 @@ class DropRefused(SourceError):
         self.database = database
         self.rows = rows
         detail = ", ".join(f"{t}: {n}" for t, n in rows.items())
-        super().__init__(
-            f"Refusing to DROP `{database}`: it holds panel data ({detail}). "
-            "Use a new database name, or confirm explicitly that this data may be destroyed."
-        )
+        super().__init__(_(
+            "Refusing to DROP `{db}`: it holds panel data ({detail}). Use a new database "
+            "name, or confirm explicitly that this data may be destroyed.",
+            db=database, detail=detail))
 
 
 def _quote_ident(name: str) -> str:
@@ -153,7 +154,8 @@ class MySQLSource(DataSource):
                 hint = _SOCKET_HINTS.get(code, "")
             else:
                 hint = _SSH_HINTS.get(code, "")
-            raise SourceError(f"Could not connect: {exc}{hint}") from exc
+            hint = "\n\n" + _(hint) if hint else ""
+            raise SourceError(_("Could not connect: {error}", error=exc) + hint) from exc
 
     def close(self) -> None:
         if self._conn is not None:

@@ -8,8 +8,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -37,7 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import profiles, templates, xui_import, xui_migrate
-from ..core.config import ConnectionProfile, load_store, save_store
+from ..core.config import ConnectionProfile, load_store, save_settings, save_store
 from ..core.dump_source import SqlDumpSource
 from ..core.exporter import ExportOptions, export_tables
 from ..core.migrator import MigrationOptions, build_plan, execute_plan
@@ -47,10 +48,12 @@ from ..core.restore import restore_dump
 from ..core.source import DataSource
 from ..core.ssh_remote import SshConfig
 from ..core.templates import create_from_template, register_template
+from ..i18n import LANGUAGES, _, get_language, set_language
 from .ssh_fields import SshFields
 from .workers import JobRunner
 
 REDACT_HINTS = frozenset({"password", "pass", "pwd", "secret", "token", "api_key", "apikey"})
+SQL_FILTER = "SQL (*.sql);;*.*"
 
 
 class MainWindow(QMainWindow):
@@ -75,19 +78,42 @@ class MainWindow(QMainWindow):
         root.addWidget(self._build_progress_box())
         self.setCentralWidget(central)
 
-        about = QAction("About", self)
+        lang_menu = self.menuBar().addMenu(_("Language"))
+        group = QActionGroup(self)
+        for code, name in LANGUAGES.items():
+            act = QAction(name, self, checkable=True)
+            act.setChecked(code == get_language())
+            act.triggered.connect(lambda _c=False, c=code: self._change_language(c))
+            group.addAction(act)
+            lang_menu.addAction(act)
+        about = QAction(_("About"), self)
         about.triggered.connect(self._about)
-        self.menuBar().addMenu("Help").addAction(about)
+        self.menuBar().addMenu(_("Help")).addAction(about)
+
+    def _change_language(self, code: str) -> None:
+        """Save the choice and rebuild the window in the new language."""
+        if code == get_language():
+            return
+        if self.runner.busy:
+            QMessageBox.information(self, _("Busy"), _("Another operation is still running."))
+            return
+        save_settings(language=code)
+        set_language(code)
+        new = MainWindow()
+        new.setGeometry(self.geometry())
+        new.show()
+        QApplication.instance()._xdb_window = new  # keep the new window referenced
+        self.close()
 
     def _build_source_box(self) -> QWidget:
-        box = QGroupBox("Data source")
+        box = QGroupBox(_("Data source"))
         outer = QVBoxLayout(box)
 
         picker = QHBoxLayout()
         self.source_kind = QComboBox()
-        self.source_kind.addItems(["Live MySQL / MariaDB", "SQL dump file (.sql)"])
+        self.source_kind.addItems([_("Live MySQL / MariaDB"), _("SQL dump file (.sql)")])
         self.source_kind.currentIndexChanged.connect(lambda i: self.source_stack.setCurrentIndex(i))
-        picker.addWidget(QLabel("Source type:"))
+        picker.addWidget(QLabel(_("Source type:")))
         picker.addWidget(self.source_kind)
         picker.addStretch(1)
         outer.addLayout(picker)
@@ -98,9 +124,9 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.source_stack)
 
         row = QHBoxLayout()
-        self.connect_btn = QPushButton("Connect / Load")
+        self.connect_btn = QPushButton(_("Connect / Load"))
         self.connect_btn.clicked.connect(self._connect_source)
-        self.status_lbl = QLabel("Not connected.")
+        self.status_lbl = QLabel(_("Not connected."))
         self.status_lbl.setStyleSheet("color: #888;")
         row.addWidget(self.connect_btn)
         row.addWidget(self.status_lbl, 1)
@@ -111,7 +137,7 @@ class MainWindow(QMainWindow):
         w = QWidget()
         form = QFormLayout(w)
         self.profile_combo = QComboBox()
-        self.profile_combo.currentTextChanged.connect(self._apply_profile)
+        self.profile_combo.currentIndexChanged.connect(self._apply_profile)
         self.in_host = QLineEdit("127.0.0.1")
         self.in_port = QSpinBox()
         self.in_port.setRange(1, 65535)
@@ -120,25 +146,25 @@ class MainWindow(QMainWindow):
         self.in_pass = QLineEdit()
         self.in_pass.setEchoMode(QLineEdit.Password)
         self.in_db = QLineEdit()
-        self.save_pass = QCheckBox("Save password in profile")
+        self.save_pass = QCheckBox(_("Save password in profile"))
 
         prof_row = QHBoxLayout()
         prof_row.addWidget(self.profile_combo, 1)
-        save_btn = QPushButton("Save")
+        save_btn = QPushButton(_("Save"))
         save_btn.clicked.connect(self._save_profile)
-        del_btn = QPushButton("Delete")
+        del_btn = QPushButton(_("Delete"))
         del_btn.clicked.connect(self._delete_profile)
         prof_row.addWidget(save_btn)
         prof_row.addWidget(del_btn)
 
-        form.addRow("Profile:", self._wrap(prof_row))
+        form.addRow(_("Profile:"), self._wrap(prof_row))
         self.src_ssh = SshFields(form, self.in_host, port_edit=self.in_port)
         self.src_ssh.add_rows()
-        form.addRow("Host:", self.in_host)
-        form.addRow("Port:", self.in_port)
-        form.addRow("User:", self.in_user)
-        form.addRow("Password:", self.in_pass)
-        form.addRow("Database:", self.in_db)
+        form.addRow(_("Host:"), self.in_host)
+        form.addRow(_("Port:"), self.in_port)
+        form.addRow(_("User:"), self.in_user)
+        form.addRow(_("Password:"), self.in_pass)
+        form.addRow(_("Database:"), self.in_db)
         form.addRow("", self.save_pass)
         return w
 
@@ -147,25 +173,27 @@ class MainWindow(QMainWindow):
         form = QFormLayout(w)
         row = QHBoxLayout()
         self.in_dump = QLineEdit()
-        browse = QPushButton("Browse…")
+        browse = QPushButton(_("Browse…"))
         browse.clicked.connect(self._browse_dump)
         row.addWidget(self.in_dump, 1)
         row.addWidget(browse)
-        form.addRow("Dump file:", self._wrap(row))
-        form.addRow(QLabel("The whole dump is parsed into memory. For very large\n"
-                           "dumps, use a live MySQL connection instead."))
+        form.addRow(_("Dump file:"), self._wrap(row))
+        note = QLabel(_("The whole dump is parsed into memory. For very large dumps, use a "
+                        "live MySQL connection instead."))
+        note.setWordWrap(True)
+        form.addRow(note)
         return w
 
     def _build_tables_box(self) -> QWidget:
-        box = QGroupBox("Tables")
+        box = QGroupBox(_("Tables"))
         v = QVBoxLayout(box)
         top = QHBoxLayout()
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("Filter tables…")
+        self.filter_edit.setPlaceholderText(_("Filter tables…"))
         self.filter_edit.textChanged.connect(self._apply_filter)
-        all_btn = QPushButton("All")
+        all_btn = QPushButton(_("All"))
         all_btn.clicked.connect(lambda: self._set_all_checks(True))
-        none_btn = QPushButton("None")
+        none_btn = QPushButton(_("None"))
         none_btn.clicked.connect(lambda: self._set_all_checks(False))
         top.addWidget(self.filter_edit, 1)
         top.addWidget(all_btn)
@@ -173,7 +201,8 @@ class MainWindow(QMainWindow):
         v.addLayout(top)
 
         self.table_widget = QTableWidget(0, 4)
-        self.table_widget.setHorizontalHeaderLabels(["Table", "Category", "Rows", "Columns"])
+        self.table_widget.setHorizontalHeaderLabels(
+            [_("Table"), _("Category"), _("Rows"), _("Columns")])
         self.table_widget.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table_widget.verticalHeader().setVisible(False)
         self.table_widget.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -182,11 +211,11 @@ class MainWindow(QMainWindow):
 
     def _build_actions_box(self) -> QWidget:
         tabs = QTabWidget()
-        tabs.addTab(self._build_export_tab(), "Export / Backup")
-        tabs.addTab(self._build_maint_tab(), "Maintenance")
-        tabs.addTab(self._build_templates_tab(), "Templates / New DB")
-        tabs.addTab(self._build_migrate_tab(), "Migrate / Restore")
-        tabs.addTab(self._build_xui_migrate_tab(), "XUI Migration")
+        tabs.addTab(self._build_export_tab(), _("Export / Backup"))
+        tabs.addTab(self._build_maint_tab(), _("Maintenance"))
+        tabs.addTab(self._build_templates_tab(), _("Templates / New DB"))
+        tabs.addTab(self._build_migrate_tab(), _("Migrate / Restore"))
+        tabs.addTab(self._build_xui_migrate_tab(), _("XUI Migration"))
         return tabs
 
     def _build_export_tab(self) -> QWidget:
@@ -200,14 +229,14 @@ class MainWindow(QMainWindow):
         dir_row = QHBoxLayout()
         dir_row.addWidget(self.export_dir, 1)
         dir_row.addWidget(dir_btn)
-        self.redact_cb = QCheckBox("Redact password/secret-like columns")
-        self.schema_cb = QCheckBox("Include CREATE TABLE (SQL format, live source)")
+        self.redact_cb = QCheckBox(_("Redact password/secret-like columns"))
+        self.schema_cb = QCheckBox(_("Include CREATE TABLE (SQL format, live source)"))
         self.schema_cb.setChecked(True)
-        self.export_btn = QPushButton("Export selected tables")
+        self.export_btn = QPushButton(_("Export selected tables"))
         self.export_btn.clicked.connect(self._do_export)
 
-        form.addRow("Format:", self.export_fmt)
-        form.addRow("Output folder:", self._wrap(dir_row))
+        form.addRow(_("Format:"), self.export_fmt)
+        form.addRow(_("Output folder:"), self._wrap(dir_row))
         form.addRow("", self.redact_cb)
         form.addRow("", self.schema_cb)
         form.addRow(self.export_btn)
@@ -217,15 +246,17 @@ class MainWindow(QMainWindow):
         w = QWidget()
         form = QFormLayout(w)
         self.maint_op = QComboBox()
-        self.maint_op.addItems(["check", "repair", "analyze", "optimize"])
-        run_btn = QPushButton("Run on selected tables")
+        for op, label in (("check", _("Check")), ("repair", _("Repair")),
+                          ("analyze", _("Analyze")), ("optimize", _("Optimize"))):
+            self.maint_op.addItem(label, op)
+        run_btn = QPushButton(_("Run on selected tables"))
         run_btn.clicked.connect(self._do_maintenance)
-        auto_btn = QPushButton("Check & auto-repair broken tables")
+        auto_btn = QPushButton(_("Check & auto-repair broken tables"))
         auto_btn.clicked.connect(self._do_auto_repair)
-        note = QLabel("Maintenance requires a live MySQL/MariaDB connection.\n"
-                      "Always back up (Export → SQL) before repairing.")
+        note = QLabel(_("Maintenance requires a live MySQL/MariaDB connection. Always back up "
+                        "(Export → SQL) before repairing."))
         note.setWordWrap(True)
-        form.addRow("Operation:", self.maint_op)
+        form.addRow(_("Operation:"), self.maint_op)
         form.addRow(run_btn)
         form.addRow(auto_btn)
         form.addRow(note)
@@ -235,9 +266,9 @@ class MainWindow(QMainWindow):
         w = QWidget()
         form = QFormLayout(w)
         self.tmpl_combo = QComboBox()
-        refresh = QPushButton("Refresh")
+        refresh = QPushButton(_("Refresh"))
         refresh.clicked.connect(self._refresh_templates)
-        reg = QPushButton("Register base .sql…")
+        reg = QPushButton(_("Register base .sql…"))
         reg.clicked.connect(self._register_template_dialog)
         tmpl_row = QHBoxLayout()
         tmpl_row.addWidget(self.tmpl_combo, 1)
@@ -251,19 +282,20 @@ class MainWindow(QMainWindow):
         self.t_pass = QLineEdit()
         self.t_pass.setEchoMode(QLineEdit.Password)
         self.t_db = QLineEdit()
-        self.t_drop = QCheckBox("DROP database first if it already exists")
-        create_btn = QPushButton("Create database from template")
+        self.t_db.setPlaceholderText(_("new database name, e.g. xui_test"))
+        self.t_drop = QCheckBox(_("DROP database first if it already exists"))
+        create_btn = QPushButton(_("Create database from template"))
         create_btn.clicked.connect(self._do_init_db)
 
-        form.addRow("Template:", self._wrap(tmpl_row))
+        form.addRow(_("Template:"), self._wrap(tmpl_row))
         form.addRow("", reg)
-        self.t_ssh = SshFields(form, self.t_host, "Target host:", self.t_port)
+        self.t_ssh = SshFields(form, self.t_host, _("Target host:"), self.t_port)
         self.t_ssh.add_rows()
-        form.addRow("Target host:", self.t_host)
-        form.addRow("Target port:", self.t_port)
-        form.addRow("Target user:", self.t_user)
-        form.addRow("Target password:", self.t_pass)
-        form.addRow("New database:", self.t_db)
+        form.addRow(_("Target host:"), self.t_host)
+        form.addRow(_("Target port:"), self.t_port)
+        form.addRow(_("Target user:"), self.t_user)
+        form.addRow(_("Target password:"), self.t_pass)
+        form.addRow(_("New database:"), self.t_db)
         form.addRow("", self.t_drop)
         form.addRow(create_btn)
         self._refresh_templates()
@@ -272,51 +304,55 @@ class MainWindow(QMainWindow):
     def _refresh_templates(self) -> None:
         self.tmpl_combo.clear()
         for m in templates.list_templates():
-            present = "" if m.sql_path().is_file() else "  [.sql missing]"
-            self.tmpl_combo.addItem(f"{m.key} — {m.name} ({m.table_count} tbl){present}", m.key)
+            present = "" if m.sql_path().is_file() else "  " + _("[.sql missing]")
+            self.tmpl_combo.addItem(
+                _("{key} — {name} ({count} tables)", key=m.key, name=m.name,
+                  count=m.table_count) + present, m.key)
         if self.tmpl_combo.count() == 0:
-            self.tmpl_combo.addItem("<no templates — register one>", None)
+            self.tmpl_combo.addItem(_("<no templates — register one>"), None)
 
     def _register_template_dialog(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select base schema .sql", "", "SQL dumps (*.sql);;All files (*)"
-        )
+        path, _sel = QFileDialog.getOpenFileName(self, _("Select base schema .sql"), "",
+                                                 SQL_FILTER)
         if not path:
             return
-        panel, ok = QInputDialog.getText(self, "Panel key", "Panel key (e.g. xui_one):")
+        panel, ok = QInputDialog.getText(self, _("Panel key"), _("Panel key (e.g. xui_one):"))
         if not ok or not panel:
             return
-        version, _ = QInputDialog.getText(self, "Version", "Version (optional, e.g. 1.5.13):")
+        version, _ok = QInputDialog.getText(self, _("Version"),
+                                            _("Version (optional, e.g. 1.5.13):"))
         default_name = f"{panel} {version}".strip()
-        name, _ = QInputDialog.getText(self, "Name", "Display name:", text=default_name)
+        name, _ok = QInputDialog.getText(self, _("Name"), _("Display name:"), text=default_name)
 
         def job(progress, message):
-            message(f"Parsing and registering {Path(path).name}…")
+            message(_("Parsing and registering {file}…", file=Path(path).name))
             return register_template(
                 path, name=name or panel, panel_key=panel, version=version or ""
             )
 
         def done(meta):
-            self._log(f"Registered template '{meta.key}' ({meta.table_count} tables).")
+            self._log(_("Registered template '{key}' ({count} tables).", key=meta.key,
+                        count=meta.table_count))
             self._refresh_templates()
 
         self._start_custom(job, done)
 
     def _do_init_db(self) -> None:
         if self.runner.busy:
-            QMessageBox.information(self, "Busy", "Another operation is still running.")
+            QMessageBox.information(self, _("Busy"), _("Another operation is still running."))
             return
         key = self.tmpl_combo.currentData()
         if not key:
-            QMessageBox.warning(self, "No template", "Register and select a template first.")
+            QMessageBox.warning(self, _("No template"),
+                                _("Register and select a template first."))
             return
         db_name = self.t_db.text().strip()
         if not db_name:
-            QMessageBox.warning(self, "No name", "Enter a name for the new database.")
+            QMessageBox.warning(self, _("No name"), _("Enter a name for the new database."))
             return
         if self.t_drop.isChecked() and QMessageBox.question(
-            self, "Confirm drop",
-            f"DROP DATABASE `{db_name}` if it exists, then recreate it?",
+            self, _("Confirm drop"),
+            _("DROP DATABASE `{db}` if it exists, then recreate it?", db=db_name),
         ) != QMessageBox.Yes:
             return
         try:
@@ -333,7 +369,7 @@ class MainWindow(QMainWindow):
             )
 
             def job(progress, message):
-                message(f"Creating `{db_name}` from template '{key}'…")
+                message(_("Creating `{db}` from template '{key}'…", db=db_name, key=key))
                 try:
                     return create_from_template(cfg, key, db_name, drop_existing=drop,
                                                 allow_drop_panel=allow_drop_panel,
@@ -346,11 +382,11 @@ class MainWindow(QMainWindow):
                     if self._confirm_panel_drop(result):
                         run(allow_drop_panel=True)
                     else:
-                        self._log(f"Cancelled: `{db_name}` was left untouched.")
+                        self._log(_("Cancelled: `{db}` was left untouched.", db=db_name))
                     return
                 self.progress.setValue(100)
-                self._log(f"Database `{db_name}` created from template "
-                          f"({result['statements']} statements).")
+                self._log(_("Database `{db}` created from template ({count} statements).",
+                            db=db_name, count=result["statements"]))
 
             self._start_custom(job, done)
 
@@ -358,13 +394,14 @@ class MainWindow(QMainWindow):
 
     def _confirm_panel_drop(self, exc: DropRefused) -> bool:
         """Second, typed confirmation before dropping a database with panel data."""
-        rows = "\n".join(f"  {t}: {n} rows" for t, n in exc.rows.items())
+        rows = "\n".join("  " + _("{table}: {count} rows", table=t, count=n)
+                         for t, n in exc.rows.items())
         self._log(str(exc))
         text, ok = QInputDialog.getText(
-            self, "This database holds panel data",
-            f"`{exc.database}` is NOT empty — it contains panel data:\n{rows}\n\n"
-            "Dropping it destroys all of this (if it is the live panel database, the panel "
-            "stops working).\n\nType the database name to DROP it anyway:",
+            self, _("This database holds panel data"),
+            _("`{db}` is NOT empty — it contains panel data:\n{rows}\n\nDropping it destroys "
+              "all of this (if it is the live panel database, the panel stops working).\n\n"
+              "Type the database name to DROP it anyway:", db=exc.database, rows=rows),
         )
         return ok and text.strip() == exc.database
 
@@ -372,8 +409,8 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
 
         def failed(err):
-            self._log(f"ERROR: {err}")
-            QMessageBox.critical(self, "Operation failed", err)
+            self._log(_("ERROR: {error}", error=err))
+            QMessageBox.critical(self, _("Operation failed"), err)
 
         self.runner.start(
             job, on_progress=self._on_progress, on_message=self._log,
@@ -391,25 +428,25 @@ class MainWindow(QMainWindow):
         self.m_pass = QLineEdit()
         self.m_pass.setEchoMode(QLineEdit.Password)
         self.m_db = QLineEdit()
-        form.addRow(QLabel("<b>Target server</b> (data is written here)"))
+        form.addRow(QLabel(_("<b>Target server</b> (data is written here)")))
         self.m_ssh = SshFields(form, self.m_host, port_edit=self.m_port)
         self.m_ssh.add_rows()
-        form.addRow("Host:", self.m_host)
-        form.addRow("Port:", self.m_port)
-        form.addRow("User:", self.m_user)
-        form.addRow("Password:", self.m_pass)
-        form.addRow("Database:", self.m_db)
+        form.addRow(_("Host:"), self.m_host)
+        form.addRow(_("Port:"), self.m_port)
+        form.addRow(_("User:"), self.m_user)
+        form.addRow(_("Password:"), self.m_pass)
+        form.addRow(_("Database:"), self.m_db)
 
         # -- migrate loaded source --
-        form.addRow(QLabel("<b>Migrate loaded source → target</b>"))
-        self.m_truncate = QCheckBox("Empty target tables first (TRUNCATE)")
-        self.m_ignore = QCheckBox("Skip duplicate rows (INSERT IGNORE)")
+        form.addRow(QLabel(_("<b>Migrate loaded source → target</b>")))
+        self.m_truncate = QCheckBox(_("Empty target tables first (TRUNCATE)"))
+        self.m_ignore = QCheckBox(_("Skip duplicate rows (INSERT IGNORE)"))
         self.m_ignore.setChecked(True)
-        plan_btn = QPushButton("Build plan (preview in log)")
+        plan_btn = QPushButton(_("Build plan (preview in log)"))
         plan_btn.clicked.connect(self._do_build_plan)
-        mig_btn = QPushButton("Run migration → inject into server")
+        mig_btn = QPushButton(_("Run migration → inject into server"))
         mig_btn.clicked.connect(lambda: self._do_migrate(dry_run=False))
-        sql_btn = QPushButton("Dry run → write migration .sql")
+        sql_btn = QPushButton(_("Dry run → write migration .sql"))
         sql_btn.clicked.connect(lambda: self._do_migrate(dry_run=True))
         form.addRow("", self.m_truncate)
         form.addRow("", self.m_ignore)
@@ -418,27 +455,26 @@ class MainWindow(QMainWindow):
         form.addRow(sql_btn)
 
         # -- restore a dump --
-        form.addRow(QLabel("<b>Restore a .sql dump → target</b>"))
+        form.addRow(QLabel(_("<b>Restore a .sql dump → target</b>")))
         self.m_dump = QLineEdit()
         dump_browse = QPushButton("…")
         dump_browse.clicked.connect(self._browse_restore_dump)
         dump_row = QHBoxLayout()
         dump_row.addWidget(self.m_dump, 1)
         dump_row.addWidget(dump_browse)
-        self.m_create = QCheckBox("Create the target database first")
-        self.m_drop = QCheckBox("DROP it first if it exists")
-        restore_btn = QPushButton("Restore dump → inject into server")
+        self.m_create = QCheckBox(_("Create the target database first"))
+        self.m_drop = QCheckBox(_("DROP it first if it exists"))
+        restore_btn = QPushButton(_("Restore dump → inject into server"))
         restore_btn.clicked.connect(self._do_restore)
-        form.addRow("Dump file:", self._wrap(dump_row))
+        form.addRow(_("Dump file:"), self._wrap(dump_row))
         form.addRow("", self.m_create)
         form.addRow("", self.m_drop)
         form.addRow(restore_btn)
         return w
 
     def _browse_restore_dump(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select .sql dump to restore", "", "SQL dumps (*.sql);;All files (*)"
-        )
+        path, _sel = QFileDialog.getOpenFileName(self, _("Select .sql dump to restore"), "",
+                                                 SQL_FILTER)
         if path:
             self.m_dump.setText(path)
 
@@ -467,20 +503,21 @@ class MainWindow(QMainWindow):
         if cfg is None:
             return
         if not cfg.database:
-            QMessageBox.warning(self, "No target DB", "Enter the target database name.")
+            QMessageBox.warning(self, _("No target DB"), _("Enter the target database name."))
             return
 
         def job(progress, message):
             with MySQLSource(cfg) as target:
                 plan = build_plan(src, target)
-            message("Migration plan:")
+            message(_("Migration plan:"))
             for m in plan.mappings:
                 message(f"  {m.summary}")
             if plan.missing_in_target:
-                message(f"  missing in target: {', '.join(plan.missing_in_target)}")
+                message("  " + _("missing in target: {tables}",
+                                 tables=", ".join(plan.missing_in_target)))
             return plan
 
-        self._start(job, done_msg="Plan built (see log).")
+        self._start(job, done_msg=_("Plan built (see log)."))
 
     def _do_migrate(self, dry_run: bool) -> None:
         if self._busy_guard():
@@ -489,18 +526,18 @@ class MainWindow(QMainWindow):
         if cfg is None:
             return
         if not cfg.database:
-            QMessageBox.warning(self, "No target DB", "Enter the target database name.")
+            QMessageBox.warning(self, _("No target DB"), _("Enter the target database name."))
             return
         sql_out = None
         if dry_run:
-            sql_out, _ = QFileDialog.getSaveFileName(self, "Save migration SQL", "migration.sql",
-                                                     "SQL (*.sql)")
+            sql_out, _sel = QFileDialog.getSaveFileName(self, _("Save migration SQL"),
+                                                        "migration.sql", SQL_FILTER)
             if not sql_out:
                 return
         elif QMessageBox.question(
-            self, "Confirm migration",
-            f"Write data directly into `{cfg.database}` on {self._where(cfg)}?\n"
-            "This modifies the live target. Make sure you have a backup.",
+            self, _("Confirm migration"),
+            _("Write data directly into `{db}` on {where}?\nThis modifies the live target. "
+              "Make sure you have a backup.", db=cfg.database, where=self._where(cfg)),
         ) != QMessageBox.Yes:
             return
         src = self.source
@@ -513,34 +550,34 @@ class MainWindow(QMainWindow):
         def job(progress, message):
             with MySQLSource(cfg) as target:
                 plan = build_plan(src, target)
-                message(f"Transferring {len(plan.transferable)} table(s)…")
+                message(_("Transferring {count} table(s)…", count=len(plan.transferable)))
                 written = execute_plan(src, target, plan, opts, progress)
-            total = sum(written.values())
-            message(f"Done: {total} rows across {len(written)} table(s).")
+            message(_("Done: {rows} rows across {tables} table(s).",
+                      rows=sum(written.values()), tables=len(written)))
             return written
 
-        self._start(job, done_msg="Migration finished.")
+        self._start(job, done_msg=_("Migration finished."))
 
     def _do_restore(self) -> None:
         if self.runner.busy:
-            QMessageBox.information(self, "Busy", "Another operation is still running.")
+            QMessageBox.information(self, _("Busy"), _("Another operation is still running."))
             return
         dump = self.m_dump.text().strip()
         if not dump:
-            QMessageBox.warning(self, "No dump", "Select a .sql dump to restore.")
+            QMessageBox.warning(self, _("No dump"), _("Select a .sql dump to restore."))
             return
         cfg = self._mig_target_cfg()
         if cfg is None:
             return
         db = cfg.database or None
         if self.m_create.isChecked() and not db:
-            QMessageBox.warning(self, "No target DB", "Enter the database name to create.")
+            QMessageBox.warning(self, _("No target DB"), _("Enter the database name to create."))
             return
-        dest = db or "(dump's own database)"
+        dest = db or _("(dump's own database)")
         if QMessageBox.question(
-            self, "Confirm restore",
-            f"Execute '{Path(dump).name}' directly into {dest} on {self._where(cfg)}?\n"
-            "This runs the dump as-is on the live server.",
+            self, _("Confirm restore"),
+            _("Execute '{file}' directly into {db} on {where}?\nThis runs the dump as-is on "
+              "the live server.", file=Path(dump).name, db=dest, where=self._where(cfg)),
         ) != QMessageBox.Yes:
             return
         create = self.m_create.isChecked()
@@ -548,7 +585,7 @@ class MainWindow(QMainWindow):
 
         def run(allow_drop_panel: bool) -> None:
             def job(progress, message):
-                message(f"Restoring {Path(dump).name}…")
+                message(_("Restoring {file}…", file=Path(dump).name))
                 try:
                     return restore_dump(cfg, dump, database=db, create=create,
                                         drop_existing=drop, allow_drop_panel=allow_drop_panel,
@@ -561,10 +598,11 @@ class MainWindow(QMainWindow):
                     if self._confirm_panel_drop(result):
                         run(allow_drop_panel=True)
                     else:
-                        self._log(f"Cancelled: `{result.database}` was left untouched.")
+                        self._log(_("Cancelled: `{db}` was left untouched.", db=result.database))
                     return
                 self.progress.setValue(100)
-                self._log(f"Restore finished ({result['statements']} statements).")
+                self._log(_("Restore finished ({count} statements).",
+                            count=result["statements"]))
 
             self._start_custom(job, done)
 
@@ -573,37 +611,37 @@ class MainWindow(QMainWindow):
     def _build_xui_migrate_tab(self) -> QWidget:
         w = QWidget()
         form = QFormLayout(w)
-        intro = QLabel(
+        db = xui_migrate.MIGRATE_DB
+        intro = QLabel(_(
             "Stage an old <b>Xtream UI / ZapX / StreamCreed / Xtream Codes v2</b> dump as the "
-            f"<code>{xui_migrate.MIGRATE_DB}</code> database on the XUI.one server. Then open the "
-            "XUI panel → <i>Database Migration</i> → <b>Migrate Database</b>."
-        )
+            "<code>{db}</code> database on the XUI.one server. Then open the XUI panel → "
+            "<i>Database Migration</i> → <b>Migrate Database</b>.", db=db))
         intro.setWordWrap(True)
         form.addRow(intro)
         self.x_mode = QComboBox()
-        self.x_mode.addItem("SSH — run mysql on the server (recommended)", "ssh")
-        self.x_mode.addItem("Direct MySQL connection", "mysql")
-        self.x_mode.setToolTip("XUI's MySQL normally refuses remote logins (error 1130); "
-                               "SSH mode needs no MySQL change on the server.")
-        form.addRow("Connect via:", self.x_mode)
+        self.x_mode.addItem(_("SSH — run mysql on the server (recommended)"), "ssh")
+        self.x_mode.addItem(_("Direct MySQL connection"), "mysql")
+        self.x_mode.setToolTip(_("XUI's MySQL normally refuses remote logins (error 1130); "
+                                 "SSH mode needs no MySQL change on the server."))
+        form.addRow(_("Connect via:"), self.x_mode)
 
         self.x_ssh_host = QLineEdit()
-        self.x_ssh_host.setPlaceholderText("XUI server IP, e.g. 192.168.1.106")
+        self.x_ssh_host.setPlaceholderText(_("XUI server IP, e.g. 192.168.1.106"))
         self.x_ssh_port = QSpinBox()
         self.x_ssh_port.setRange(1, 65535)
         self.x_ssh_port.setValue(22)
         self.x_ssh_user = QLineEdit("root")
         self.x_ssh_pass = QLineEdit()
         self.x_ssh_pass.setEchoMode(QLineEdit.Password)
-        self.x_ssh_pass.setPlaceholderText("blank = SSH key / agent")
+        self.x_ssh_pass.setPlaceholderText(_("blank = SSH key / agent"))
         self.x_ssh_key = QLineEdit()
-        self.x_ssh_key.setPlaceholderText("optional private key file")
+        self.x_ssh_key.setPlaceholderText(_("optional private key file"))
         form.addRow(QLabel("<b>SSH</b>"))
-        form.addRow("SSH host:", self.x_ssh_host)
-        form.addRow("SSH port:", self.x_ssh_port)
-        form.addRow("SSH user:", self.x_ssh_user)
-        form.addRow("SSH password:", self.x_ssh_pass)
-        form.addRow("SSH key:", self.x_ssh_key)
+        form.addRow(_("SSH host:"), self.x_ssh_host)
+        form.addRow(_("SSH port:"), self.x_ssh_port)
+        form.addRow(_("SSH user:"), self.x_ssh_user)
+        form.addRow(_("SSH password:"), self.x_ssh_pass)
+        form.addRow(_("SSH key:"), self.x_ssh_key)
         ssh_rows = [form.rowCount() - i for i in range(1, 7)]
 
         self.x_host = QLineEdit("127.0.0.1")
@@ -613,13 +651,13 @@ class MainWindow(QMainWindow):
         self.x_user = QLineEdit()
         self.x_pass = QLineEdit()
         self.x_pass.setEchoMode(QLineEdit.Password)
-        form.addRow(QLabel("<b>MySQL</b> (in SSH mode: blank user = root via socket; "
-                           "or XUI's user from config.ini)"))
-        form.addRow("Host:", self.x_host)
-        form.addRow("Port:", self.x_port)
+        form.addRow(QLabel(_("<b>MySQL</b> (in SSH mode: blank user = root via socket; or "
+                             "XUI's user from config.ini)")))
+        form.addRow(_("Host:"), self.x_host)
+        form.addRow(_("Port:"), self.x_port)
         mysql_rows = [form.rowCount() - 2, form.rowCount() - 1]
-        form.addRow("User:", self.x_user)
-        form.addRow("Password:", self.x_pass)
+        form.addRow(_("User:"), self.x_user)
+        form.addRow(_("Password:"), self.x_pass)
 
         def on_mode(_idx: int) -> None:
             ssh = self.x_mode.currentData() == "ssh"
@@ -627,83 +665,84 @@ class MainWindow(QMainWindow):
                 form.setRowVisible(r, ssh)
             for r in mysql_rows:
                 form.setRowVisible(r, not ssh)
-            self.x_user.setPlaceholderText("blank = root via socket" if ssh else "")
+            self.x_user.setPlaceholderText(_("blank = root via socket") if ssh else "")
 
         self.x_mode.currentIndexChanged.connect(on_mode)
         on_mode(0)
 
-        form.addRow(QLabel("<b>Old panel dump</b>"))
+        form.addRow(QLabel(_("<b>Old panel dump</b>")))
         self.x_dump = QLineEdit()
         browse = QPushButton("…")
         browse.clicked.connect(self._browse_xui_dump)
         row = QHBoxLayout()
         row.addWidget(self.x_dump, 1)
         row.addWidget(browse)
-        form.addRow("Dump file:", self._wrap(row))
-        self.x_drop = QCheckBox(f"Replace an existing `{xui_migrate.MIGRATE_DB}` database")
+        form.addRow(_("Dump file:"), self._wrap(row))
+        self.x_drop = QCheckBox(_("Replace an existing `{db}` database", db=db))
         self.x_drop.setChecked(True)
-        self.x_skip_logs = QCheckBox("Skip log table rows (XUI does not migrate logs)")
+        self.x_skip_logs = QCheckBox(_("Skip log table rows (XUI does not migrate logs)"))
         self.x_skip_logs.setChecked(True)
-        self.x_force = QCheckBox("Load even if it does not look like an XC v2-family dump")
+        self.x_force = QCheckBox(_("Load even if it does not look like an XC v2-family dump"))
         self.x_grant = QLineEdit()
-        self.x_grant.setPlaceholderText("optional: XUI MySQL user, e.g. user@localhost")
+        self.x_grant.setPlaceholderText(_("optional: XUI MySQL user, e.g. user@localhost"))
         form.addRow("", self.x_drop)
         form.addRow("", self.x_skip_logs)
         form.addRow("", self.x_force)
-        form.addRow("Grant to:", self.x_grant)
+        form.addRow(_("Grant to:"), self.x_grant)
 
-        check_btn = QPushButton("Check dump")
+        check_btn = QPushButton(_("Check dump"))
         check_btn.clicked.connect(self._do_xui_check)
-        load_btn = QPushButton(f"Load into `{xui_migrate.MIGRATE_DB}` on server")
+        load_btn = QPushButton(_("Load into `{db}` on server", db=db))
         load_btn.clicked.connect(self._do_xui_stage)
-        script_btn = QPushButton("Write script to run on the server…")
+        script_btn = QPushButton(_("Write script to run on the server…"))
         script_btn.clicked.connect(self._do_xui_script)
         form.addRow(check_btn)
         form.addRow(load_btn)
         form.addRow(script_btn)
 
-        form.addRow(QLabel("<b>Import an XUI.one backup → this XUI</b> (XUI to XUI, over SSH)"))
+        form.addRow(QLabel(_("<b>Import an XUI.one backup → this XUI</b> (XUI to XUI, "
+                             "over SSH)")))
         content_box = QWidget()
         grid = QGridLayout(content_box)
         grid.setContentsMargins(0, 0, 0, 0)
         self.xi_content: dict[str, QCheckBox] = {}
         for i, (key, group) in enumerate(xui_import.CONTENT_GROUPS.items()):
-            box = QCheckBox(group.label)
+            box = QCheckBox(_(group.label))
             box.setChecked(True)
             self.xi_content[key] = box
             grid.addWidget(box, i // 2, i % 2)
         pick = QHBoxLayout()
-        for text, state in (("All", True), ("None", False)):
+        for text, state in ((_("All"), True), (_("None"), False)):
             b = QPushButton(text)
-            b.clicked.connect(lambda _=False, s=state: [c.setChecked(s)
-                                                        for c in self.xi_content.values()])
+            b.clicked.connect(lambda _c=False, s=state: [c.setChecked(s)
+                                                         for c in self.xi_content.values()])
             pick.addWidget(b)
         pick.addStretch(1)
-        form.addRow("Restore:", content_box)
+        form.addRow(_("Restore:"), content_box)
         form.addRow("", self._wrap(pick))
         self.xi_servers = QComboBox()
-        self.xi_servers.addItem("Move all streams to this XUI's main server", "main")
-        self.xi_servers.addItem("Add the backup's load balancers as extra servers", "import")
-        self.xi_backup = QCheckBox("Back up the current `xui` database on the server first")
+        self.xi_servers.addItem(_("Move all streams to this XUI's main server"), "main")
+        self.xi_servers.addItem(_("Add the backup's load balancers as extra servers"), "import")
+        self.xi_backup = QCheckBox(_("Back up the current `xui` database on the server first"))
         self.xi_backup.setChecked(True)
-        self.xi_logs = QCheckBox("Also import logs / statistics")
-        self.xi_access = QCheckBox("Import access codes (old admin/reseller URLs replace this "
-                                   "server's)")
-        self.xi_settings = QCheckBox("Import settings")
-        self.xi_srv = QCheckBox("Import servers (old IPs; replaces the 'Streams' choice)")
+        self.xi_logs = QCheckBox(_("Also import logs / statistics"))
+        self.xi_access = QCheckBox(_("Import access codes (old admin/reseller URLs replace "
+                                     "this server's)"))
+        self.xi_settings = QCheckBox(_("Import settings"))
+        self.xi_srv = QCheckBox(_("Import servers (old IPs; replaces the 'Streams' choice)"))
         self.xi_srv.toggled.connect(lambda on: self.xi_servers.setEnabled(not on))
-        self.xi_rescue = QCheckBox("Create a rescue admin access code + user at the end")
+        self.xi_rescue = QCheckBox(_("Create a rescue admin access code + user at the end"))
         self.xi_rescue.setChecked(True)
-        form.addRow("Streams:", self.xi_servers)
+        form.addRow(_("Streams:"), self.xi_servers)
         form.addRow("", self.xi_backup)
         form.addRow("", self.xi_logs)
-        form.addRow("System:", self.xi_access)
+        form.addRow(_("System:"), self.xi_access)
         form.addRow("", self.xi_settings)
         form.addRow("", self.xi_srv)
         form.addRow("", self.xi_rescue)
-        preview_btn = QPushButton("Preview XUI import")
+        preview_btn = QPushButton(_("Preview XUI import"))
         preview_btn.clicked.connect(lambda: self._do_xui_import(plan_only=True))
-        import_btn = QPushButton("Import backup into `xui` on server")
+        import_btn = QPushButton(_("Import backup into `xui` on server"))
         import_btn.clicked.connect(lambda: self._do_xui_import(plan_only=False))
         form.addRow(preview_btn)
         form.addRow(import_btn)
@@ -713,25 +752,24 @@ class MainWindow(QMainWindow):
         return scroll
 
     def _browse_xui_dump(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select old panel dump", "", "SQL dumps (*.sql *.gz);;All files (*)"
-        )
+        path, _sel = QFileDialog.getOpenFileName(self, _("Select old panel dump"), "",
+                                                 "SQL (*.sql *.gz);;*.*")
         if path:
             self.x_dump.setText(path)
 
     def _xui_prepare_job(self):
         """Validate the form; return a function that loads+prepares the dump, or None."""
         if self.runner.busy:
-            QMessageBox.information(self, "Busy", "Another operation is still running.")
+            QMessageBox.information(self, _("Busy"), _("Another operation is still running."))
             return None
         dump = self.x_dump.text().strip()
         if not dump:
-            QMessageBox.warning(self, "No dump", "Select the old panel's .sql dump.")
+            QMessageBox.warning(self, _("No dump"), _("Select the old panel's .sql dump."))
             return None
         skip_logs, force = self.x_skip_logs.isChecked(), self.x_force.isChecked()
 
         def prepare(message):
-            message(f"Analysing {Path(dump).name}…")
+            message(_("Analysing {file}…", file=Path(dump).name))
             prepared = xui_migrate.load_dump(dump, skip_logs=skip_logs, force=force)
             for line in prepared.summary_lines():
                 message(f"  {line}")
@@ -742,14 +780,15 @@ class MainWindow(QMainWindow):
     def _do_xui_check(self) -> None:
         prepare = self._xui_prepare_job()
         if prepare:
-            self._start(lambda progress, message: prepare(message), done_msg="Dump looks OK.")
+            self._start(lambda progress, message: prepare(message),
+                        done_msg=_("Dump looks OK."))
 
     def _do_xui_script(self) -> None:
         prepare = self._xui_prepare_job()
         if not prepare:
             return
-        out, _ = QFileDialog.getSaveFileName(self, "Save xui_migrate script",
-                                             "xui_migrate.sql", "SQL (*.sql)")
+        out, _sel = QFileDialog.getSaveFileName(self, _("Save xui_migrate script"),
+                                                "xui_migrate.sql", SQL_FILTER)
         if not out:
             return
         drop, grant = self.x_drop.isChecked(), self.x_grant.text().strip() or None
@@ -757,11 +796,11 @@ class MainWindow(QMainWindow):
         def job(progress, message):
             path = xui_migrate.write_script(prepare(message), out,
                                             drop_existing=drop, grant_to=grant)
-            message(f"Copy {path.name} to the XUI server and run: "
-                    f"mysql -u root -p < {path.name}")
+            message(_("Copy {file} to the XUI server and run: mysql -u root -p < {file}",
+                      file=path.name))
             return path
 
-        self._start(job, done_msg="Script written.")
+        self._start(job, done_msg=_("Script written."))
 
     def _do_xui_stage(self) -> None:
         prepare = self._xui_prepare_job()
@@ -783,21 +822,23 @@ class MainWindow(QMainWindow):
             )
             host = cfg.host
         if not host:
-            QMessageBox.warning(self, "No server", "Enter the XUI server host.")
+            QMessageBox.warning(self, _("No server"), _("Enter the XUI server host."))
             return
         drop, grant = self.x_drop.isChecked(), self.x_grant.text().strip() or None
         db = xui_migrate.MIGRATE_DB
-        warn = f"\nThe existing `{db}` will be DROPPED." if drop else ""
+        warn = "\n" + _("The existing `{db}` will be DROPPED.", db=db) if drop else ""
         if QMessageBox.question(
-            self, "Confirm",
-            f"Load '{Path(self.x_dump.text()).name}' into `{db}` on {host}?{warn}\n"
-            "Only this database is written; the live `xui` database is not touched.",
+            self, _("Confirm"),
+            _("Load '{file}' into `{db}` on {host}?", file=Path(self.x_dump.text()).name,
+              db=db, host=host) + warn + "\n"
+            + _("Only this database is written; the live `xui` database is not touched."),
         ) != QMessageBox.Yes:
             return
 
         def job(progress, message):
             prepared = prepare(message)
-            message(f"Loading into `{db}` on {host}{' over SSH' if use_ssh else ''}…")
+            message(_("Loading into `{db}` on {host}…", db=db,
+                      host=f"{host} (SSH)" if use_ssh else host))
             if use_ssh:
                 result = xui_migrate.stage_via_ssh(
                     ssh_cfg, prepared, mysql_user=mysql_user, mysql_password=mysql_pass,
@@ -806,23 +847,24 @@ class MainWindow(QMainWindow):
             else:
                 result = xui_migrate.stage_live(cfg, prepared, drop_existing=drop,
                                                 grant_to=grant, progress=progress)
-            message(f"Loaded {result['tables']} tables ({result['statements']} statements).")
+            message(_("Loaded {tables} tables ({count} statements).", tables=result["tables"],
+                      count=result["statements"]))
             for table, n in result["row_counts"].items():
-                message(f"  {table}: {n} rows")
+                message("  " + _("{table}: {count} rows", table=table, count=n))
             if not result["xui_server"]:
-                message("Note: no `xui` database on this server — is it the XUI.one host?")
-            message("Next: XUI panel → Database Migration → Migrate Database.")
+                message(_("Note: no `xui` database on this server — is it the XUI.one host?"))
+            message(_("Next: XUI panel → Database Migration → Migrate Database."))
             return result
 
-        self._start(job, done_msg=f"`{db}` is ready for XUI's migration page.")
+        self._start(job, done_msg=_("`{db}` is ready for XUI's migration page.", db=db))
 
     def _do_xui_import(self, plan_only: bool) -> None:
         if self.runner.busy:
-            QMessageBox.information(self, "Busy", "Another operation is still running.")
+            QMessageBox.information(self, _("Busy"), _("Another operation is still running."))
             return
         dump = self.x_dump.text().strip()
         if not dump:
-            QMessageBox.warning(self, "No dump", "Select the XUI.one backup (.sql).")
+            QMessageBox.warning(self, _("No dump"), _("Select the XUI.one backup (.sql)."))
             return
         ssh_cfg = SshConfig(
             host=self.x_ssh_host.text().strip(), port=self.x_ssh_port.value(),
@@ -830,8 +872,9 @@ class MainWindow(QMainWindow):
             key_file=self.x_ssh_key.text().strip(),
         )
         if self.x_mode.currentData() != "ssh" or not ssh_cfg.host:
-            QMessageBox.warning(self, "SSH needed",
-                                "XUI import runs over SSH: choose SSH and enter the SSH host.")
+            QMessageBox.warning(self, _("SSH needed"),
+                                _("XUI import runs over SSH: choose SSH and enter the SSH "
+                                  "host."))
             return
         backup = self.xi_backup.isChecked()
         chosen = [t for t, box in (("access_codes", self.xi_access),
@@ -840,21 +883,25 @@ class MainWindow(QMainWindow):
         rescue = self.xi_rescue.isChecked()
         content = [k for k, box in self.xi_content.items() if box.isChecked()]
         if not content and not chosen:
-            QMessageBox.warning(self, "Nothing chosen", "Tick at least one kind of content.")
+            QMessageBox.warning(self, _("Nothing chosen"),
+                                _("Tick at least one kind of content."))
             return
         if not plan_only:
-            warn = "" if backup else "\n\nNo backup of the current `xui` will be taken!"
+            warn = "" if backup else "\n\n" + _("No backup of the current `xui` will be taken!")
             if len(content) < len(self.xi_content):
-                labels = ", ".join(xui_import.CONTENT_GROUPS[k].label for k in content)
-                warn += f"\n\nOnly this content is replaced: {labels or '(none)'}."
+                labels = ", ".join(_(xui_import.CONTENT_GROUPS[k].label) for k in content)
+                warn += "\n\n" + _("Only this content is replaced: {labels}.",
+                                   labels=labels or _("(none)"))
             if chosen:
-                warn += f"\n\nReplaced with the backup's: {', '.join(chosen)}."
+                warn += "\n\n" + _("Replaced with the backup's: {tables}.",
+                                   tables=", ".join(chosen))
             if "access_codes" in chosen and not rescue:
-                warn += "\nThe current admin URL will stop working and no rescue is created!"
+                warn += "\n" + _("The current admin URL will stop working and no rescue is "
+                                 "created!")
             if QMessageBox.question(
-                self, "Confirm XUI import",
-                f"Replace the data of the live `xui` database on {ssh_cfg.host} with "
-                f"'{Path(dump).name}'?{warn}",
+                self, _("Confirm XUI import"),
+                _("Replace the data of the live `xui` database on {host} with '{file}'?",
+                  host=ssh_cfg.host, file=Path(dump).name) + warn,
             ) != QMessageBox.Yes:
                 return
         opts = dict(
@@ -865,7 +912,7 @@ class MainWindow(QMainWindow):
         )
 
         def job(progress, message):
-            message(f"Reading {Path(dump).name} and the target schema…")
+            message(_("Reading {file} and the target schema…", file=Path(dump).name))
             result = xui_import.import_via_ssh(ssh_cfg, dump, progress=progress,
                                                message=message, **opts)
             if not plan_only:
@@ -874,25 +921,25 @@ class MainWindow(QMainWindow):
             return result
 
         if plan_only:
-            self._start(job, done_msg="Preview ready (see log).")
+            self._start(job, done_msg=_("Preview ready (see log)."))
             return
 
         def done(result):
             self.progress.setValue(100)
-            self._log("XUI backup imported.")
+            self._log(_("XUI backup imported."))
             box = QMessageBox(self)
-            box.setWindowTitle("XUI import finished")
+            box.setWindowTitle(_("XUI import finished"))
             box.setIcon(QMessageBox.Information)
-            box.setText("Import finished. Access details:" if result.get("rescue")
-                        else "Import finished.")
+            box.setText(_("Import finished. Access details:") if result.get("rescue")
+                        else _("Import finished."))
             box.setDetailedText("\n".join(xui_import.report_lines(result)))
             rescue_acc = result.get("rescue")
             if rescue_acc:
-                box.setInformativeText(
-                    f"URL: {result.get('panel_base', '')}/{rescue_acc.code}/\n"
-                    f"User: {rescue_acc.username}\nPassword: {rescue_acc.password}\n\n"
-                    "Save these now — the password is not stored anywhere."
-                )
+                box.setInformativeText(_(
+                    "URL: {url}\nUser: {user}\nPassword: {password}\n\nSave these now — the "
+                    "password is not stored anywhere.",
+                    url=f"{result.get('panel_base', '')}/{rescue_acc.code}/",
+                    user=rescue_acc.username, password=rescue_acc.password))
             box.setTextInteractionFlags(Qt.TextSelectableByMouse)
             box.exec()
 
@@ -949,10 +996,10 @@ class MainWindow(QMainWindow):
 
     def _busy_guard(self) -> bool:
         if self.runner.busy:
-            QMessageBox.information(self, "Busy", "Another operation is still running.")
+            QMessageBox.information(self, _("Busy"), _("Another operation is still running."))
             return True
         if self.source is None:
-            QMessageBox.warning(self, "No source", "Connect or load a source first.")
+            QMessageBox.warning(self, _("No source"), _("Connect or load a source first."))
             return True
         return False
 
@@ -961,11 +1008,14 @@ class MainWindow(QMainWindow):
         self.store = load_store()
         self.profile_combo.blockSignals(True)
         self.profile_combo.clear()
-        self.profile_combo.addItem("<new>")
+        self.profile_combo.addItem(_("<new>"))
         self.profile_combo.addItems([p.name for p in self.store.profiles])
         self.profile_combo.blockSignals(False)
 
-    def _apply_profile(self, name: str) -> None:
+    def _apply_profile(self, index: int) -> None:
+        if index <= 0:  # "<new>"
+            return
+        name = self.profile_combo.itemText(index)
         p = next((x for x in self.store.profiles if x.name == name), None)
         if not p:
             return
@@ -1001,26 +1051,25 @@ class MainWindow(QMainWindow):
         save_store(self.store)
         self._load_profiles()
         self.profile_combo.setCurrentText(name)
-        self._log(f"Saved profile: {name}")
+        self._log(_("Saved profile: {name}", name=name))
 
     def _delete_profile(self) -> None:
+        if self.profile_combo.currentIndex() <= 0:
+            return
         name = self.profile_combo.currentText()
-        if name and name != "<new>":
-            self.store.remove(name)
-            save_store(self.store)
-            self._load_profiles()
-            self._log(f"Deleted profile: {name}")
+        self.store.remove(name)
+        save_store(self.store)
+        self._load_profiles()
+        self._log(_("Deleted profile: {name}", name=name))
 
     # ---------------------------------------------------------- source
     def _browse_dump(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select SQL dump", "", "SQL dumps (*.sql);;All files (*)"
-        )
+        path, _sel = QFileDialog.getOpenFileName(self, _("Select SQL dump"), "", SQL_FILTER)
         if path:
             self.in_dump.setText(path)
 
     def _browse_export_dir(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select output folder")
+        path = QFileDialog.getExistingDirectory(self, _("Select output folder"))
         if path:
             self.export_dir.setText(path)
 
@@ -1043,11 +1092,11 @@ class MainWindow(QMainWindow):
                 src = SqlDumpSource(self.in_dump.text().strip())
             src.open()
         except Exception as exc:  # noqa: BLE001
-            QMessageBox.critical(self, "Connection failed", str(exc))
-            self._log(f"ERROR: {exc}")
+            QMessageBox.critical(self, _("Connection failed"), str(exc))
+            self._log(_("ERROR: {error}", error=exc))
             return
         self.source = src
-        self._log(f"Connected: {src.label}")
+        self._log(_("Connected: {label}", label=src.label))
         self._populate_tables()
 
     def _populate_tables(self) -> None:
@@ -1059,10 +1108,9 @@ class MainWindow(QMainWindow):
 
         info = self.source.server_info()
         extra = info.get("server_version", info.get("source", ""))
-        self.status_lbl.setText(
-            f"Panel: {det.profile.name} ({det.confidence:.0%} conf.)  •  "
-            f"{len(tables)} tables  •  {extra}"
-        )
+        self.status_lbl.setText(_(
+            "Panel: {panel} ({confidence:.0%} conf.)  •  {count} tables  •  {extra}",
+            panel=det.profile.name, confidence=det.confidence, count=len(tables), extra=extra))
         self.status_lbl.setStyleSheet("color: #2a7;")
 
         self.table_widget.setRowCount(len(tables))
@@ -1079,7 +1127,8 @@ class MainWindow(QMainWindow):
             self.table_widget.setItem(r, 1, QTableWidgetItem(cat_of.get(t, "other")))
             self.table_widget.setItem(r, 2, QTableWidgetItem(str(rc) if rc >= 0 else "?"))
             self.table_widget.setItem(r, 3, QTableWidgetItem(str(nc) if nc >= 0 else "?"))
-        self._log(f"Detected {det.profile.name}; loaded {len(tables)} tables.")
+        self._log(_("Detected {panel}; loaded {count} tables.", panel=det.profile.name,
+                    count=len(tables)))
 
     # ---------------------------------------------------------- actions
     def _do_export(self) -> None:
@@ -1087,7 +1136,7 @@ class MainWindow(QMainWindow):
             return
         tables = self._selected_tables()
         if not tables:
-            QMessageBox.warning(self, "No tables", "Select at least one table.")
+            QMessageBox.warning(self, _("No tables"), _("Select at least one table."))
             return
         redact = REDACT_HINTS if self.redact_cb.isChecked() else frozenset()
         opts = ExportOptions(
@@ -1099,53 +1148,54 @@ class MainWindow(QMainWindow):
         src = self.source
 
         def job(progress, message):
-            message(f"Exporting {len(tables)} table(s) as {opts.fmt} → {opts.out_dir}")
-            paths = export_tables(src, tables, opts, progress)
-            return paths
+            message(_("Exporting {count} table(s) as {fmt} → {folder}", count=len(tables),
+                      fmt=opts.fmt, folder=opts.out_dir))
+            return export_tables(src, tables, opts, progress)
 
-        self._start(job, done_msg="Export complete.")
+        self._start(job, done_msg=_("Export complete."))
 
     def _do_maintenance(self) -> None:
         if self._busy_guard():
             return
         tables = self._selected_tables()
         if not tables:
-            QMessageBox.warning(self, "No tables", "Select at least one table.")
+            QMessageBox.warning(self, _("No tables"), _("Select at least one table."))
             return
-        op = self.maint_op.currentText()
+        op, label = self.maint_op.currentData(), self.maint_op.currentText()
         src = self.source
 
         def job(progress, message):
-            message(f"Running {op} on {len(tables)} table(s)…")
+            message(_("Running {operation} on {count} table(s)…", operation=label,
+                      count=len(tables)))
             results = run_maintenance(src, tables, op, progress)
             for r in results:
                 message(f"  {r.table}: {r.status} — {r.message}")
             return results
 
-        self._start(job, done_msg=f"{op.title()} finished.")
+        self._start(job, done_msg=_("{operation} finished.", operation=label))
 
     def _do_auto_repair(self) -> None:
         if self._busy_guard():
             return
         tables = self._selected_tables()
         if not tables:
-            QMessageBox.warning(self, "No tables", "Select at least one table.")
+            QMessageBox.warning(self, _("No tables"), _("Select at least one table."))
             return
         if QMessageBox.question(
-            self, "Confirm repair",
-            "REPAIR will rewrite affected tables. Have you exported a backup first?",
+            self, _("Confirm repair"),
+            _("REPAIR will rewrite affected tables. Have you exported a backup first?"),
         ) != QMessageBox.Yes:
             return
         src = self.source
 
         def job(progress, message):
-            message("Checking tables…")
+            message(_("Checking tables…"))
             results = check_and_repair(src, tables, progress)
             for r in results:
                 message(f"  [{r.operation}] {r.table}: {r.status} — {r.message}")
             return results
 
-        self._start(job, done_msg="Check & repair finished.")
+        self._start(job, done_msg=_("Check & repair finished."))
 
     def _start(self, job, done_msg: str) -> None:
         self.progress.setValue(0)
@@ -1155,8 +1205,8 @@ class MainWindow(QMainWindow):
             self._log(done_msg)
 
         def on_failed(err):
-            self._log(f"ERROR: {err}")
-            QMessageBox.critical(self, "Operation failed", err)
+            self._log(_("ERROR: {error}", error=err))
+            QMessageBox.critical(self, _("Operation failed"), err)
 
         self.runner.start(
             job,
@@ -1168,12 +1218,14 @@ class MainWindow(QMainWindow):
 
     def _about(self) -> None:
         QMessageBox.about(
-            self, "About XUI DB Tool",
-            "XUI DB Tool\n\nInspect, back up, repair and migrate XUI / Xtream-UI /\n"
-            "StreamCreed panel databases you own or are authorised to manage.\n\n"
-            "Credentials are migrated verbatim; hashes are never decrypted.\n\n"
-            "Copyright © 2026 Diogo Carneiro <diogoncarneiro@outlook.com>\n"
-            "MIT License.",
+            self, _("About XUI DB Tool"),
+            "XUI DB Tool\n\n"
+            + _("Inspect, back up, repair and migrate XUI / Xtream-UI / StreamCreed panel "
+                "databases you own or are authorised to manage.")
+            + "\n\n"
+            + _("Credentials are migrated verbatim; hashes are never decrypted.")
+            + "\n\nCopyright © 2026 Diogo Carneiro <diogoncarneiro@outlook.com>\n"
+            + _("MIT License."),
         )
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override

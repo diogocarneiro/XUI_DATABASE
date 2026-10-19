@@ -22,6 +22,7 @@ from pathlib import Path
 
 from .core.config import config_dir
 from .core.logger import setup_logging
+from .i18n import LANGUAGES, SOURCE_LANGUAGE, set_language
 
 
 def _add_source_args(p: argparse.ArgumentParser) -> None:
@@ -342,6 +343,8 @@ def cmd_xui_import(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="xui-db-tool", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--lang", choices=list(LANGUAGES),
+                   help="Interface language (GUI default: saved choice or pt; CLI default: en)")
     sub = p.add_subparsers(dest="command")
 
     sub.add_parser("gui", help="Launch the graphical interface")
@@ -517,7 +520,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command in (None, "gui"):
         from .gui.app import run
-        return run()
+        return run(language=args.lang)
+    set_language(args.lang or SOURCE_LANGUAGE)  # CLI output stays English unless asked
     return args.func(args)
 
 

@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 ### Added
+- **Translations**: Portuguese (default), English, French, Spanish and Italian.
+  GUI menu *Idioma / Language* (saved in `settings.json`, window rebuilt on
+  switch); CLI `--lang` (CLI default stays English). New `xdbtool/i18n` package
+  (`_()` / `N_()`, JSON catalogs with named placeholders, `extract.py` checker);
+  reports, notes and connection hints from the core are translated too;
+  `tests/test_i18n.py` enforces complete catalogs and matching placeholders.
 - **SSH + server MySQL socket** connection mode (GUI *Connect via*, CLI
   `--ssh-mysql-socket [PATH]`): relays each connection to MySQL's unix socket
   through a Python (or socat / nc -U) bridge run on the server, so `root` with

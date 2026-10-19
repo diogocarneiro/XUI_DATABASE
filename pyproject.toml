@@ -46,3 +46,6 @@ select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Import the package from the checkout with plain `pytest` too (not only `python -m
+# pytest`): without this the CI collected nothing and exited with code 2.
+pythonpath = ["."]

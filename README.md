@@ -1,5 +1,9 @@
 # XUI DB Tool
 
+[![CI](https://github.com/diogocarneiro/XUI_DATABASE/actions/workflows/ci.yml/badge.svg)](https://github.com/diogocarneiro/XUI_DATABASE/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/diogocarneiro/XUI_DATABASE?include_prereleases&sort=semver)](https://github.com/diogocarneiro/XUI_DATABASE/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A desktop + CLI tool to **inspect, back up, repair and migrate** the databases of
 IPTV panels — **XUI.one**, **Xtream-UI** and **StreamCreed** — from a live
 MySQL/MariaDB connection or from an offline `mysqldump` `.sql` file.
@@ -32,11 +36,25 @@ MySQL/MariaDB connection or from an offline `mysqldump` `.sql` file.
   **recreate a fresh, clean database** for that panel on any target server. Base
   `.sql` files stay local; only name-only *signatures* are shipped, and they also
   fingerprint an unknown database to its closest known template/version.
-- **GUI** (PySide6) **and** a scriptable **CLI**.
+- **XUI.one migration** — stage an old Xtream UI / ZapX / StreamCreed / XC v2 dump
+  as `xui_migrate` for XUI's own *Database Migration* page, or import an XUI.one
+  backup into another XUI server choosing what to restore (channels, movies,
+  series, lines, resellers, EPG…), with automatic backup and a rescue login.
+- **SSH everywhere** — reach panel servers whose MySQL only accepts local logins,
+  through an SSH tunnel or the server's MySQL socket (root without password).
+- **Safety** — refuses to `DROP` a database holding panel data unless confirmed.
+- **GUI** (PySide6) **and** a scriptable **CLI**; **Português** (default),
+  English, Français, Español, Italiano; light / dark / automatic theme;
+  in-app updates from GitHub Releases.
 
 ## Install
 
-Requires **Python 3.10+**.
+**Windows app:** download `XUI-DB-Tool-<version>-windows.zip` from the
+[latest release](https://github.com/diogocarneiro/XUI_DATABASE/releases/latest),
+check it against `SHA256SUMS.txt`, unzip and run `XUI-DB-Tool.exe`. Later versions
+install themselves from *Ajuda → Procurar actualizações*.
+
+**From source** (any OS) — requires **Python 3.10+**:
 
 ```bash
 git clone https://github.com/diogocarneiro/XUI_DATABASE.git
@@ -305,8 +323,9 @@ notes. **Update now** then:
 - **git checkout** — nothing is changed; use `git pull`.
 
 CLI: `python -m xdbtool update --check` (report only) or `update` (install).
-While the repository is private, set a fine-grained token with read-only
-*Contents* access in *Ajuda → Token do GitHub* or `XDBTOOL_GITHUB_TOKEN`.
+No account or token is needed (the repository is public). Behind a shared IP
+that hits GitHub's hourly API limit, an optional token can be given with
+`XDBTOOL_GITHUB_TOKEN` or `update --token`.
 
 ## License
 

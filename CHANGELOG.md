@@ -10,8 +10,9 @@ All notable changes to this project are documented here. The format is based on
   check at startup, CLI `update [--check]`. Windows app: downloads the release
   zip, verifies it against `SHA256SUMS.txt`, swaps the files after exit and
   restarts; pip installs: `pip install --upgrade` of the release source; git
-  checkouts: never modified. Optional GitHub token for a private repository
-  (never forwarded to other hosts on redirects). New `core/updater.py`.
+  checkouts: never modified. Public repository, so no token is needed; an
+  optional one (`XDBTOOL_GITHUB_TOKEN` / `--token`) only raises the API rate limit
+  and is never forwarded to other hosts on redirects. New `core/updater.py`.
 - **Release workflow** (`.github/workflows/release.yml`): on a `v*` tag, run the
   tests, check the tag matches `__version__`, build the Windows app with
   PyInstaller (`packaging/xui_db_tool.py`), publish the release with the zip,

@@ -513,7 +513,8 @@ def build_parser() -> argparse.ArgumentParser:
     pu.add_argument("--check", action="store_true", help="Only report whether one exists")
     pu.add_argument("--pre", action="store_true", help="Include pre-releases")
     pu.add_argument("--token", default="",
-                    help="GitHub token (private repo); default: $XDBTOOL_GITHUB_TOKEN or setting")
+                    help="Optional GitHub token (only raises the API rate limit); "
+                         "default: $XDBTOOL_GITHUB_TOKEN")
     pu.set_defaults(func=cmd_update)
     return p
 

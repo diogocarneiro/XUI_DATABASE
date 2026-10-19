@@ -89,11 +89,52 @@ def test_no_token_means_no_authorization_header(github):
     assert seen[0].get_header("Authorization") is None
 
 
-def test_missing_release_or_private_repo_is_explained(github):
+def test_no_release_yet_is_explained(github):
     routes, _seen = github
     routes[LATEST] = HTTPError(LATEST, 404, "Not Found", {}, None)
-    with pytest.raises(UpdateError, match="private"):
+    with pytest.raises(UpdateError, match="No release has been published yet"):
         updater.check("")
+
+
+def test_rate_limit_is_explained(github):
+    routes, _seen = github
+    routes[LATEST] = HTTPError(LATEST, 403, "rate limit exceeded", {}, None)
+    with pytest.raises(UpdateError, match="hourly limit"):
+        updater.check("")
+
+
+def test_a_rejected_token_falls_back_to_anonymous(github):
+    routes, seen = github
+    calls = iter([HTTPError(LATEST, 401, "Bad credentials", {}, None), release_json("v0.1.0")])
+    routes[LATEST] = None
+    original = updater.urlopen
+
+    def flaky(request, timeout):
+        body = next(calls)
+        routes[LATEST] = body
+        return original(request, timeout)
+
+    updater.urlopen = flaky
+    try:
+        assert updater.check("bad-token", current="0.1.0")[0] is False
+    finally:
+        updater.urlopen = original
+    assert seen[0].get_header("Authorization") == "Bearer bad-token"
+    assert seen[1].get_header("Authorization") is None
+
+
+def test_stale_token_in_settings_is_ignored(monkeypatch):
+    monkeypatch.delenv(updater.TOKEN_ENV, raising=False)
+    assert updater.token_from_env({"github_token": ",klm\x93"}) == ""
+    monkeypatch.setenv(updater.TOKEN_ENV, " tok ")
+    assert updater.token_from_env({}) == "tok"
+
+
+def test_public_download_links_unless_a_token_is_given():
+    rel = updater._release(release_json("v0.2.0", ["SHA256SUMS.txt"]))
+    asset = rel.asset("SHA256SUMS.txt")
+    assert updater._asset_url(asset, "") == "https://github.com/dl/SHA256SUMS.txt"
+    assert updater._asset_url(asset, "tok") == "https://api.github.com/assets/0"
 
 
 def test_token_is_not_forwarded_to_another_host():
@@ -155,8 +196,10 @@ def _windows_release(github, tamper=False):
         zf.writestr("XUI-DB-Tool/_internal/data.txt", b"x")
     payload = buf.getvalue()
     digest = hashlib.sha256(b"tampered" if tamper else payload).hexdigest()
-    routes[rel.asset(name).api_url] = payload
-    routes[rel.asset("SHA256SUMS.txt").api_url] = f"{digest}  {name}\n".encode()
+    sums = f"{digest}  {name}\n".encode()
+    for asset, body in ((rel.asset(name), payload), (rel.asset("SHA256SUMS.txt"), sums)):
+        routes[asset.api_url] = body          # with a token
+        routes[asset.download_url] = body     # public link, without one
     return rel
 
 

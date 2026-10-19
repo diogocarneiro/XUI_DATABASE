@@ -125,11 +125,9 @@ class MainWindow(QMainWindow):
         auto_check = QAction(_("Check for updates at startup"), self, checkable=True)
         auto_check.setChecked(bool(load_settings().get("check_updates", True)))
         auto_check.toggled.connect(lambda on: save_settings(check_updates=on))
-        token = QAction(_("GitHub token (private repository)…"), self)
-        token.triggered.connect(self._set_github_token)
         about = QAction(_("About"), self)
         about.triggered.connect(self._about)
-        for act in (check, auto_check, token):
+        for act in (check, auto_check):
             help_menu.addAction(act)
         help_menu.addSeparator()
         help_menu.addAction(about)
@@ -205,17 +203,6 @@ class MainWindow(QMainWindow):
 
         self._log(_("Updating to {version}…", version=release.version))
         self._start_custom(job, done)
-
-    def _set_github_token(self) -> None:
-        current = load_settings().get("github_token", "")
-        text, ok = QInputDialog.getText(
-            self, _("GitHub token"),
-            _("Only needed while the repository is private: a fine-grained token with "
-              "read-only access to its Contents. Leave empty to remove it."),
-            QLineEdit.Password, current)
-        if ok:
-            save_settings(github_token=text.strip())
-            self._log(_("GitHub token saved.") if text.strip() else _("GitHub token removed."))
 
     def _build_header(self) -> QWidget:
         header = QWidget()

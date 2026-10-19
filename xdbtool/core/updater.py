@@ -14,8 +14,9 @@ How an update is applied depends on how the tool runs (:func:`install_kind`):
 * ``git`` — a development checkout: nothing is changed automatically; use
   ``git pull``.
 
-A private repository needs a GitHub token with read access to its contents
-(``XDBTOOL_GITHUB_TOKEN`` or the ``github_token`` setting); a public one needs none.
+The repository is public, so no credentials are needed. A GitHub token
+(``XDBTOOL_GITHUB_TOKEN``, the ``github_token`` setting or CLI ``--token``) is
+optional and only raises the API rate limit (60 requests/hour per IP without one).
 """
 
 from __future__ import annotations
@@ -104,7 +105,9 @@ class Release:
 
 
 def token_from_env(settings: dict | None = None) -> str:
-    return os.environ.get(TOKEN_ENV) or (settings or {}).get("github_token") or ""
+    """Optional token from the environment. A ``github_token`` left in the settings by
+    older versions (private-repository era) is deliberately ignored."""
+    return os.environ.get(TOKEN_ENV, "").strip()
 
 
 class _StripAuthOnRedirect(HTTPRedirectHandler):
@@ -138,13 +141,15 @@ def _get_json(url: str, token: str, timeout: float):
         with urlopen(_request(url, token), timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except HTTPError as exc:
+        if exc.code == 401 and token:
+            # The repository is public: a bad or expired token must not block updates.
+            log.warning("GitHub rejected the token; retrying anonymously")
+            return _get_json(url, "", timeout)
         if exc.code == 404:
-            raise UpdateError(_(
-                "No release found. Either none is published yet, or the repository is "
-                "private and needs a GitHub token (read access).")) from exc
-        if exc.code in (401, 403):
-            raise UpdateError(_("GitHub refused the request ({code}); check the token or "
-                                "try again later.", code=exc.code)) from exc
+            raise UpdateError(_("No release has been published yet.")) from exc
+        if exc.code in (401, 403, 429):
+            raise UpdateError(_("GitHub refused the request ({code}), probably the hourly "
+                                "limit; try again later.", code=exc.code)) from exc
         raise UpdateError(_("GitHub error {code}.", code=exc.code)) from exc
     except URLError as exc:
         raise UpdateError(_("Cannot reach GitHub: {error}", error=exc.reason)) from exc
@@ -167,9 +172,7 @@ def latest_release(token: str = "", include_prereleases: bool = False,
         data = _get_json(f"{API}/repos/{repo}/releases?per_page=10", token, timeout)
         published = [d for d in data if not d.get("draft")]
         if not published:
-            raise UpdateError(_("No release found. Either none is published yet, or the "
-                                "repository is private and needs a GitHub token (read "
-                                "access)."))
+            raise UpdateError(_("No release has been published yet."))
         return _release(max(published, key=lambda d: _sort_key(d["tag_name"])))
     return _release(_get_json(f"{API}/repos/{repo}/releases/latest", token, timeout))
 
@@ -267,6 +270,11 @@ def updater_script(pid: int, staging: Path, target: Path, exe: Path, cleanup: Pa
     )
 
 
+def _asset_url(asset: Asset, token: str) -> str:
+    """Public download link (no API quota) unless a token is set; then the API URL."""
+    return asset.api_url if token or not asset.download_url else asset.download_url
+
+
 def apply_update(release: Release, token: str = "", progress=None, message=None) -> str:
     """Install ``release``. Returns ``"restart"`` (exit now, the script restarts the
     app), ``"restart-manually"`` (pip install done) or raises :class:`UpdateError`."""
@@ -296,8 +304,8 @@ def apply_update(release: Release, token: str = "", progress=None, message=None)
         raise UpdateError(_("Release {tag} has no Windows package with checksums.",
                             tag=release.tag))
     say(_("Downloading {file}…", file=asset.name))
-    zipped = download(asset.api_url, work / asset.name, token, progress)
-    sums_file = download(sums.api_url, work / CHECKSUMS, token)
+    zipped = download(_asset_url(asset, token), work / asset.name, token, progress)
+    sums_file = download(_asset_url(sums, token), work / CHECKSUMS, token)
     verify(zipped, asset.name, parse_checksums(sums_file.read_text(encoding="utf-8")))
     say(_("Checksum verified."))
     staging = work / "new"

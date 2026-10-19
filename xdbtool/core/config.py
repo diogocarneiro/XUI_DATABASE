@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 from .logger import get_logger
@@ -42,11 +42,19 @@ class ConnectionProfile:
     # Stored only when the user explicitly chooses to save it.
     password: str = ""
     save_password: bool = False
+    # Optional SSH tunnel to reach a MySQL that only accepts local connections.
+    use_ssh: bool = False
+    ssh_host: str = ""
+    ssh_port: int = 22
+    ssh_user: str = "root"
+    ssh_key: str = ""
+    ssh_password: str = ""
 
     def to_stored(self) -> dict:
         d = asdict(self)
         if not self.save_password:
             d["password"] = ""
+            d["ssh_password"] = ""
         return d
 
 
@@ -75,7 +83,9 @@ def load_store() -> Store:
         return Store()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        profiles = [ConnectionProfile(**p) for p in data.get("profiles", [])]
+        known = {f.name for f in fields(ConnectionProfile)}
+        profiles = [ConnectionProfile(**{k: v for k, v in p.items() if k in known})
+                    for p in data.get("profiles", [])]
         return Store(profiles=profiles)
     except Exception as exc:  # noqa: BLE001
         log.warning("Could not read connection store: %s", exc)

@@ -32,6 +32,7 @@ def _add_source_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--user", default="root")
     p.add_argument("--password", default="")
     p.add_argument("--database", default="")
+    _add_ssh_args(p, mysql_creds=False)
 
 
 def _open_source(args):
@@ -40,9 +41,15 @@ def _open_source(args):
 
     if getattr(args, "dump", None):
         return SqlDumpSource(args.dump)
+    ssh = None
+    if args.ssh_host:
+        from .core.ssh_remote import SshConfig
+
+        ssh = SshConfig(host=args.ssh_host, port=args.ssh_port, user=args.ssh_user,
+                        password=args.ssh_password, key_file=args.ssh_key or "")
     cfg = ConnectionConfig(
         host=args.host, port=args.port, user=args.user,
-        password=args.password, database=args.database,
+        password=args.password, database=args.database, ssh=ssh,
     )
     return MySQLSource(cfg)
 
@@ -457,12 +464,17 @@ def _content_list(value: str) -> list[str]:
     return kinds
 
 
-def _add_ssh_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--ssh-host", help="XUI server SSH host (runs mysql on the server)")
+def _add_ssh_args(p: argparse.ArgumentParser, mysql_creds: bool = True) -> None:
+    help_host = ("XUI server SSH host (runs mysql on the server)" if mysql_creds else
+                 "Reach MySQL through an SSH tunnel to this host; --host is then the MySQL "
+                 "address on that server (usually 127.0.0.1)")
+    p.add_argument("--ssh-host", help=help_host)
     p.add_argument("--ssh-port", type=int, default=22)
     p.add_argument("--ssh-user", default="root")
     p.add_argument("--ssh-password", default="", help="SSH password (or use --ssh-key/agent)")
     p.add_argument("--ssh-key", help="Private key file for SSH")
+    if not mysql_creds:
+        return
     p.add_argument("--mysql-user", default="",
                    help="With --ssh-host: MySQL user on the server (blank = root via socket)")
     p.add_argument("--mysql-password", default="")

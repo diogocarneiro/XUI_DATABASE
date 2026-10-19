@@ -80,6 +80,20 @@ python -m xdbtool migrate --dump old_panel.sql \
     --target-database new_panel --sql-out migration.sql --plan-only
 ```
 
+### Connect through SSH (MySQL that only accepts local connections)
+
+XUI.one's MariaDB refuses remote logins (error 1130). Choose **Connect via → SSH
+tunnel** in the *Data source* box (or pass `--ssh-host` on the CLI): the tool opens
+SSH and forwards a local port to the server's `127.0.0.1:3306`, so every tab —
+tables, Export, **Maintenance** (CHECK/REPAIR/…) — works unchanged. Use the panel's
+MySQL user from `/home/xui/config/config.ini`; SSH settings are saved in profiles
+(passwords only with *Save password*).
+
+```bash
+python -m xdbtool maint --host 127.0.0.1 --user XUI_DB_USER --password XUI_DB_PASS \
+    --database xui --ssh-host 192.168.1.106 --ssh-password secret --operation auto
+```
+
 ### Templates — recreate a fresh panel database
 
 ```bash

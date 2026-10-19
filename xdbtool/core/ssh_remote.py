@@ -12,7 +12,10 @@ option file — never on the command line, where other users could see them.
 from __future__ import annotations
 
 import secrets
+import select
 import shlex
+import socket
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,6 +53,107 @@ def _mysql_cnf(user: str, password: str) -> str:
     return f"[client]\nuser={esc(user)}\npassword={esc(password)}\n"
 
 
+def connect_client(c: SshConfig):
+    """Open an authenticated Paramiko client for ``c`` (raises :class:`SshError`)."""
+    if paramiko is None:  # pragma: no cover
+        raise SshError("Paramiko is not installed. Run: pip install -r requirements.txt"
+                       ) from _IMPORT_ERROR
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    # Unknown host keys are accepted but logged, like a first `ssh` login.
+    client.set_missing_host_key_policy(paramiko.WarningPolicy())
+    try:
+        client.connect(
+            c.host, port=c.port, username=c.user, password=c.password or None,
+            key_filename=c.key_file or None, timeout=c.timeout,
+            allow_agent=not c.password, look_for_keys=not (c.password or c.key_file),
+        )
+    except Exception as exc:  # noqa: BLE001 - normalise to SshError
+        client.close()
+        raise SshError(f"SSH connection to {c.user}@{c.host}:{c.port} failed: {exc}") from exc
+    log.info("SSH connected to %s@%s:%d", c.user, c.host, c.port)
+    return client
+
+
+class SshTunnel:
+    """Forward a local port to ``remote_host:remote_port`` as seen from the SSH server.
+
+    Lets a normal MySQL client reach a server whose MySQL only accepts local
+    connections: to MariaDB the connection comes from ``127.0.0.1``, exactly like
+    the panel's own. Use as a context manager or call :meth:`start` / :meth:`stop`.
+    """
+
+    def __init__(self, config: SshConfig, remote_host: str = "127.0.0.1",
+                 remote_port: int = 3306):
+        self.config = config
+        self.remote = (remote_host, remote_port)
+        self.local_port = 0
+        self._client = None
+        self._server: socket.socket | None = None
+        self._stop = threading.Event()
+
+    def __enter__(self) -> SshTunnel:
+        self.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.stop()
+
+    def start(self) -> int:
+        self._client = connect_client(self.config)
+        self._server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._server.bind(("127.0.0.1", 0))      # local only, random free port
+        self._server.listen(8)
+        self._server.settimeout(0.5)
+        self.local_port = self._server.getsockname()[1]
+        threading.Thread(target=self._accept_loop, name="ssh-tunnel", daemon=True).start()
+        log.info("SSH tunnel 127.0.0.1:%d -> %s:%d via %s", self.local_port, *self.remote,
+                 self.config.host)
+        return self.local_port
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._server is not None:
+            self._server.close()
+            self._server = None
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+
+    def _accept_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                sock, peer = self._server.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                return  # server socket closed by stop()
+            try:
+                chan = self._client.get_transport().open_channel("direct-tcpip", self.remote,
+                                                                 peer)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("SSH tunnel could not open a channel: %s", exc)
+                sock.close()
+                continue
+            threading.Thread(target=self._pump, args=(sock, chan), daemon=True).start()
+
+    def _pump(self, sock: socket.socket, chan) -> None:
+        try:
+            while not self._stop.is_set():
+                ready, _, _ = select.select([sock, chan], [], [], 0.5)
+                for src, dst in ((sock, chan), (chan, sock)):
+                    if src in ready:
+                        data = src.recv(65536)
+                        if not data:
+                            return
+                        dst.sendall(data)
+        except OSError:
+            pass
+        finally:
+            chan.close()
+            sock.close()
+
+
 class SshSession:
     """A connected SSH client with helpers for remote ``mysql`` execution."""
 
@@ -63,21 +167,7 @@ class SshSession:
         self._cnf: str | None = None
 
     def __enter__(self) -> SshSession:
-        c = self.config
-        client = paramiko.SSHClient()
-        client.load_system_host_keys()
-        # Unknown host keys are accepted but logged, like a first `ssh` login.
-        client.set_missing_host_key_policy(paramiko.WarningPolicy())
-        try:
-            client.connect(
-                c.host, port=c.port, username=c.user, password=c.password or None,
-                key_filename=c.key_file or None, timeout=c.timeout,
-                allow_agent=not c.password, look_for_keys=not (c.password or c.key_file),
-            )
-        except Exception as exc:  # noqa: BLE001 - normalise to SshError
-            raise SshError(f"SSH connection to {c.user}@{c.host}:{c.port} failed: {exc}") from exc
-        self._client = client
-        log.info("SSH connected to %s@%s:%d", c.user, c.host, c.port)
+        self._client = connect_client(self.config)
         return self
 
     def __exit__(self, *exc) -> None:

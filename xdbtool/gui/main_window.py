@@ -130,13 +130,52 @@ class MainWindow(QMainWindow):
         prof_row.addWidget(save_btn)
         prof_row.addWidget(del_btn)
 
+        self.in_via = QComboBox()
+        self.in_via.addItem("Direct MySQL connection", "direct")
+        self.in_via.addItem("SSH tunnel (MySQL only accepts local connections)", "ssh")
+        self.in_ssh_host = QLineEdit()
+        self.in_ssh_host.setPlaceholderText("server IP, e.g. 192.168.1.106")
+        self.in_ssh_port = QSpinBox()
+        self.in_ssh_port.setRange(1, 65535)
+        self.in_ssh_port.setValue(22)
+        self.in_ssh_user = QLineEdit("root")
+        self.in_ssh_pass = QLineEdit()
+        self.in_ssh_pass.setEchoMode(QLineEdit.Password)
+        self.in_ssh_pass.setPlaceholderText("blank = SSH key / agent")
+        self.in_ssh_key = QLineEdit()
+        self.in_ssh_key.setPlaceholderText("optional private key file")
+        ssh_row = QHBoxLayout()
+        for label, widget, stretch in (("Host:", self.in_ssh_host, 3),
+                                       ("Port:", self.in_ssh_port, 0),
+                                       ("User:", self.in_ssh_user, 1),
+                                       ("Password:", self.in_ssh_pass, 2),
+                                       ("Key:", self.in_ssh_key, 2)):
+            ssh_row.addWidget(QLabel(label))
+            ssh_row.addWidget(widget, stretch)
+
         form.addRow("Profile:", self._wrap(prof_row))
+        form.addRow("Connect via:", self.in_via)
+        form.addRow("SSH:", self._wrap(ssh_row))
+        ssh_index = form.rowCount() - 1
         form.addRow("Host:", self.in_host)
         form.addRow("Port:", self.in_port)
         form.addRow("User:", self.in_user)
         form.addRow("Password:", self.in_pass)
         form.addRow("Database:", self.in_db)
         form.addRow("", self.save_pass)
+
+        def on_via(_idx: int) -> None:
+            ssh = self.in_via.currentData() == "ssh"
+            form.setRowVisible(ssh_index, ssh)
+            form.labelForField(self.in_host).setText("MySQL host (on server):" if ssh
+                                                     else "Host:")
+            # Switching to SSH: the old host is the SSH server; MySQL is local to it.
+            if ssh and not self.in_ssh_host.text().strip():
+                self.in_ssh_host.setText(self.in_host.text().strip())
+                self.in_host.setText("127.0.0.1")
+
+        self.in_via.currentIndexChanged.connect(on_via)
+        on_via(0)
         return w
 
     def _build_dump_form(self) -> QWidget:
@@ -898,13 +937,24 @@ class MainWindow(QMainWindow):
         self.in_db.setText(p.database)
         self.in_pass.setText(p.password)
         self.save_pass.setChecked(p.save_password)
+        self.in_ssh_host.setText(p.ssh_host)
+        self.in_ssh_port.setValue(p.ssh_port)
+        self.in_ssh_user.setText(p.ssh_user)
+        self.in_ssh_key.setText(p.ssh_key)
+        self.in_ssh_pass.setText(p.ssh_password)
+        self.in_via.setCurrentIndex(1 if p.use_ssh else 0)
 
     def _save_profile(self) -> None:
-        name = f"{self.in_user.text()}@{self.in_host.text()}/{self.in_db.text()}"
+        ssh = self.in_via.currentData() == "ssh"
+        where = f"{self.in_ssh_host.text()} (ssh)" if ssh else self.in_host.text()
+        name = f"{self.in_user.text()}@{where}/{self.in_db.text()}"
         prof = ConnectionProfile(
             name=name, host=self.in_host.text(), port=self.in_port.value(),
             user=self.in_user.text(), database=self.in_db.text(),
             password=self.in_pass.text(), save_password=self.save_pass.isChecked(),
+            use_ssh=ssh, ssh_host=self.in_ssh_host.text().strip(),
+            ssh_port=self.in_ssh_port.value(), ssh_user=self.in_ssh_user.text().strip(),
+            ssh_key=self.in_ssh_key.text().strip(), ssh_password=self.in_ssh_pass.text(),
         )
         self.store.upsert(prof)
         save_store(self.store)
@@ -942,10 +992,19 @@ class MainWindow(QMainWindow):
             self.source = None
         try:
             if self.source_kind.currentIndex() == 0:
+                ssh = None
+                if self.in_via.currentData() == "ssh":
+                    ssh = SshConfig(
+                        host=self.in_ssh_host.text().strip(), port=self.in_ssh_port.value(),
+                        user=self.in_ssh_user.text().strip(),
+                        password=self.in_ssh_pass.text(), key_file=self.in_ssh_key.text().strip(),
+                    )
+                    if not ssh.host:
+                        raise ValueError("Enter the SSH host.")
                 cfg = ConnectionConfig(
-                    host=self.in_host.text().strip(), port=self.in_port.value(),
+                    host=self.in_host.text().strip() or "127.0.0.1", port=self.in_port.value(),
                     user=self.in_user.text().strip(), password=self.in_pass.text(),
-                    database=self.in_db.text().strip(),
+                    database=self.in_db.text().strip(), ssh=ssh,
                 )
                 src: DataSource = MySQLSource(cfg)
             else:

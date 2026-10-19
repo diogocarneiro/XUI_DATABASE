@@ -34,11 +34,16 @@ class ConnectionConfig:
     database: str = ""
     charset: str = "utf8mb4"
     connect_timeout: int = 10
+    # Optional SSH tunnel (an ssh_remote.SshConfig). When set, ``host``/``port`` are
+    # the MySQL address *as seen from the SSH server* (usually 127.0.0.1:3306).
+    ssh: object | None = None
 
     def masked(self) -> dict[str, object]:
-        """Dict suitable for logging/saving — password redacted."""
+        """Dict suitable for logging/saving — passwords redacted."""
         d = self.__dict__.copy()
         d["password"] = "***" if self.password else ""
+        if self.ssh is not None:
+            d["ssh"] = f"{self.ssh.user}@{self.ssh.host}:{self.ssh.port}"
         return d
 
 
@@ -49,6 +54,12 @@ _CONNECT_HINTS = {
         "(ssh -L 3307:127.0.0.1:3306 root@server), or run a generated script on the server."
     ),
     1045: "\n\nWrong user/password, or this user is not allowed from your IP address.",
+}
+_SSH_HINTS = {
+    1045: ("\n\nOver SSH the connection comes from 127.0.0.1. Use the MySQL user/password "
+           "from the panel's config (XUI: /home/xui/config/config.ini); root usually only "
+           "works through the server's local socket, not TCP."),
+    1130: "\n\nThis MySQL user is not allowed from 127.0.0.1 on the server.",
 }
 
 
@@ -71,16 +82,33 @@ class MySQLSource(DataSource):
             ) from _IMPORT_ERROR
         self.config = config
         self._conn = None
-        self.label = f"{config.user}@{config.host}:{config.port}/{config.database or '?'}"
+        self._tunnel = None
+        self.label = self._make_label(config.database)
+
+    def _make_label(self, database: str) -> str:
+        c = self.config
+        where = f"{c.host}:{c.port}" if c.ssh is None else f"{c.ssh.host} (SSH)"
+        return f"{c.user}@{where}/{database or '?'}"
 
     # -- lifecycle ---------------------------------------------------------
     def open(self) -> None:
         if self._conn is not None:
             return
+        host, port = self.config.host, self.config.port
+        if self.config.ssh is not None:
+            from .ssh_remote import SshError, SshTunnel
+
+            tunnel = SshTunnel(self.config.ssh, host or "127.0.0.1", port)
+            try:
+                host, port = "127.0.0.1", tunnel.start()
+            except SshError as exc:
+                tunnel.stop()
+                raise SourceError(str(exc)) from exc
+            self._tunnel = tunnel
         try:
             self._conn = pymysql.connect(
-                host=self.config.host,
-                port=self.config.port,
+                host=host,
+                port=port,
                 user=self.config.user,
                 password=self.config.password,
                 database=self.config.database or None,
@@ -91,8 +119,9 @@ class MySQLSource(DataSource):
             )
             log.info("Connected to %s", self.label)
         except Exception as exc:  # noqa: BLE001 - normalise to SourceError
+            self._close_tunnel()
             code = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
-            hint = _CONNECT_HINTS.get(code, "")
+            hint = _SSH_HINTS.get(code, "") if self.config.ssh else _CONNECT_HINTS.get(code, "")
             raise SourceError(f"Could not connect: {exc}{hint}") from exc
 
     def close(self) -> None:
@@ -101,6 +130,12 @@ class MySQLSource(DataSource):
                 self._conn.close()
             finally:
                 self._conn = None
+        self._close_tunnel()
+
+    def _close_tunnel(self) -> None:
+        if self._tunnel is not None:
+            self._tunnel.stop()
+            self._tunnel = None
 
     def _cursor(self):
         if self._conn is None:
@@ -217,7 +252,7 @@ class MySQLSource(DataSource):
         with self._cursor() as cur:
             cur.execute(f"USE {_quote_ident(name)}")
         self.config.database = name
-        self.label = f"{self.config.user}@{self.config.host}:{self.config.port}/{name}"
+        self.label = self._make_label(name)
 
     def execute(self, sql: str, args=None) -> list[dict]:
         """Run one statement (with PyMySQL-escaped ``args``) and return its rows."""

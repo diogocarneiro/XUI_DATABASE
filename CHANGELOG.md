@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 ### Added
+- **SSH tunnel for the main connection**: *Data source → Connect via → SSH
+  tunnel* (CLI `--ssh-host` … on `info`/`export`/`maint`) forwards a local port
+  to the server's MySQL, so tables, Export and Maintenance work with servers whose
+  MySQL only accepts local connections. `SshTunnel` + `connect_client()` in
+  `core/ssh_remote.py`; `ConnectionConfig.ssh`; SSH settings stored in profiles
+  (SSH password only with *Save password*); SSH-specific 1045/1130 hints.
 - **XUI.one → XUI.one import** (`xui-import` CLI, GUI section in **XUI
   Migration**): imports an XUI.one backup into another server's live `xui` over
   SSH. Reads the target schema and copies only shared tables/columns; keeps the

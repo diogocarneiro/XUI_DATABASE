@@ -5,10 +5,13 @@
 
 How an update is applied depends on how the tool runs (:func:`install_kind`):
 
-* ``frozen`` — the Windows build (PyInstaller): the release's
+* ``frozen`` on Windows — the GUI build: the release's
   ``XUI-DB-Tool-<version>-windows.zip`` is downloaded, **verified against the
   release's SHA256SUMS.txt**, unpacked, and a small script swaps the files in
   once the app has exited, then restarts it.
+* ``frozen`` on Linux — the single-file CLI build for servers: the release's
+  ``xui-db-tool-<version>-linux-x86_64`` is downloaded, verified the same way and
+  atomically renamed over the running binary (the next run uses it).
 * ``pip`` — installed as a package: the release's source archive is downloaded
   and installed with ``pip install --upgrade``; restart afterwards.
 * ``git`` — a development checkout: nothing is changed automatically; use
@@ -24,7 +27,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -44,6 +49,7 @@ log = get_logger(__name__)
 REPO = "diogocarneiro/XUI_DATABASE"
 API = "https://api.github.com"
 APP_NAME = "XUI-DB-Tool"
+LINUX_NAME = "xui-db-tool"  # single-file CLI build for servers
 CHECKSUMS = "SHA256SUMS.txt"
 TOKEN_ENV = "XDBTOOL_GITHUB_TOKEN"
 
@@ -102,6 +108,9 @@ class Release:
 
     def windows_asset(self) -> Asset | None:
         return self.asset(f"{APP_NAME}-{self.version}-windows.zip")
+
+    def linux_asset(self) -> Asset | None:
+        return self.asset(f"{LINUX_NAME}-{self.version}-linux-x86_64")
 
 
 def token_from_env(settings: dict | None = None) -> str:
@@ -275,6 +284,35 @@ def _asset_url(asset: Asset, token: str) -> str:
     return asset.api_url if token or not asset.download_url else asset.download_url
 
 
+def _apply_linux_binary(release: Release, token: str, work: Path, progress, say) -> str:
+    """Replace the running single-file CLI binary (Linux allows it; next run is new)."""
+    if platform.machine().lower() not in ("x86_64", "amd64"):
+        raise UpdateError(_("Only x86_64 Linux builds are published."))
+    asset, sums = release.linux_asset(), release.asset(CHECKSUMS)
+    if asset is None or sums is None:
+        raise UpdateError(_("Release {tag} has no Linux binary with checksums.",
+                            tag=release.tag))
+    say(_("Downloading {file}…", file=asset.name))
+    new = download(_asset_url(asset, token), work / asset.name, token, progress)
+    sums_file = download(_asset_url(sums, token), work / CHECKSUMS, token)
+    verify(new, asset.name, parse_checksums(sums_file.read_text(encoding="utf-8")))
+    say(_("Checksum verified."))
+    target = Path(sys.executable).resolve()
+    staged = target.with_name(f".{target.name}.new")
+    try:
+        shutil.copyfile(new, staged)            # same filesystem → atomic rename below
+        os.chmod(staged, 0o755)
+        os.replace(staged, target)
+    except PermissionError as exc:
+        staged.unlink(missing_ok=True)
+        raise UpdateError(_("No permission to replace {path}; run the update with sudo.",
+                            path=target)) from exc
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    log.info("Replaced %s with %s", target, release.tag)
+    return "restart-manually"
+
+
 def apply_update(release: Release, token: str = "", progress=None, message=None) -> str:
     """Install ``release``. Returns ``"restart"`` (exit now, the script restarts the
     app), ``"restart-manually"`` (pip install done) or raises :class:`UpdateError`."""
@@ -296,9 +334,11 @@ def apply_update(release: Release, token: str = "", progress=None, message=None)
                                 error=(done.stderr or done.stdout).strip()[-600:]))
         return "restart-manually"
 
+    if sys.platform.startswith("linux"):
+        return _apply_linux_binary(release, token, work, progress, say)
     if sys.platform != "win32":
         raise UpdateError(_("Automatic update of the packaged app is only available on "
-                            "Windows."))
+                            "Windows and Linux."))
     asset, sums = release.windows_asset(), release.asset(CHECKSUMS)
     if asset is None or sums is None:
         raise UpdateError(_("Release {tag} has no Windows package with checksums.",

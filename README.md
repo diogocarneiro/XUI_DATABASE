@@ -49,10 +49,25 @@ MySQL/MariaDB connection or from an offline `mysqldump` `.sql` file.
 
 ## Install
 
-**Windows app:** download `XUI-DB-Tool-<version>-windows.zip` from the
-[latest release](https://github.com/diogocarneiro/XUI_DATABASE/releases/latest),
-check it against `SHA256SUMS.txt`, unzip and run `XUI-DB-Tool.exe`. Later versions
-install themselves from *Ajuda → Procurar actualizações*.
+Every [release](https://github.com/diogocarneiro/XUI_DATABASE/releases/latest)
+publishes one format per audience, all listed in `SHA256SUMS.txt`:
+
+| File | For | How |
+|---|---|---|
+| `XUI-DB-Tool-<v>-windows.zip` | desktop app (Windows) | unzip, run `XUI-DB-Tool.exe` |
+| `xui-db-tool-<v>-linux-x86_64` | command line on Linux servers (Ubuntu 20.04+) | `chmod +x` and run |
+| `xui_db_tool-<v>-py3-none-any.whl` | any OS with Python 3.10+ | `pip install <file>` (CLI) or `pip install "<file>[gui]"` |
+
+```bash
+# Linux server, e.g. the XUI host itself
+curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/latest/download/SHA256SUMS.txt
+curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.2.0/xui-db-tool-0.2.0-linux-x86_64
+sha256sum --check --ignore-missing SHA256SUMS.txt
+chmod +x xui-db-tool-0.2.0-linux-x86_64 && ./xui-db-tool-0.2.0-linux-x86_64 --help
+```
+
+All three update themselves: *Ajuda → Procurar actualizações* in the app, or
+`update` on the command line.
 
 **From source** (any OS) — requires **Python 3.10+**:
 

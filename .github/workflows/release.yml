@@ -2,75 +2,145 @@
 # Copyright (c) 2026 Diogo Carneiro <diogoncarneiro@outlook.com>
 # XUI DB Tool — https://github.com/diogocarneiro/XUI_DATABASE
 #
-# Publish a release: bump xdbtool/__init__.py __version__, add a "## [X.Y.Z]" section
-# to CHANGELOG.md, commit, then:   git tag vX.Y.Z && git push origin vX.Y.Z
+# Automatic releases. On every push to main this reads xdbtool.__version__; when no
+# release vX.Y.Z exists yet it tests, builds and publishes one (creating the tag).
+# To release: bump __version__, add "## [X.Y.Z] - date" to CHANGELOG.md, commit, push.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  workflow_dispatch:      # retry by hand after a failed run
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' xdbtool/__init__.py)
+          [ -n "$version" ] || { echo "::error::__version__ not found"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+            echo "v$version is already released; nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          elif ! grep -q "^## \[$version\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [$version]' section for the new version."
+            exit 1
+          else
+            echo "Releasing v$version"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
   tests:
+    needs: version
+    if: needs.version.outputs.release == 'true'
     uses: ./.github/workflows/ci.yml
 
   build-windows:
-    needs: tests
+    needs: [version, tests]
     runs-on: windows-2025
-    outputs:
-      version: ${{ steps.version.outputs.version }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Check the tag matches the code version
-        id: version
-        shell: bash
-        run: |
-          code=$(python -c "import xdbtool; print(xdbtool.__version__)")
-          tag="${GITHUB_REF_NAME#v}"
-          if [ "$code" != "$tag" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match xdbtool.__version__ ($code)"
-            exit 1
-          fi
-          echo "version=$code" >> "$GITHUB_OUTPUT"
       - name: Install
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
-      - name: Build
+      - name: Build (GUI)
         # `python -m` from the repo root puts xdbtool on sys.path, so --collect-data
         # finds the translations and panel signatures (plain `pyinstaller` does not).
         run: >
           python -m PyInstaller --noconfirm --windowed --name XUI-DB-Tool
           --collect-data xdbtool --paths . packaging/xui_db_tool.py
-      - name: Package
+      - name: Smoke test
         shell: pwsh
         run: |
-          $zip = "XUI-DB-Tool-${{ steps.version.outputs.version }}-windows.zip"
-          Compress-Archive -Path dist/XUI-DB-Tool -DestinationPath $zip
+          & dist/XUI-DB-Tool/XUI-DB-Tool.exe xui-migrate tests/fixtures/sample_xtream.sql --sql-out smoke.sql | Out-Null
+          if (-not (Select-String -Path smoke.sql -Pattern 'xui_migrate' -Quiet)) { throw "smoke test failed" }
+      - name: Package
+        shell: pwsh
+        run: Compress-Archive -Path dist/XUI-DB-Tool -DestinationPath "XUI-DB-Tool-$env:VERSION-windows.zip"
       - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: XUI-DB-Tool-*-windows.zip
 
-  publish:
-    needs: build-windows
+  build-linux:
+    needs: [version, tests]
     runs-on: ubuntu-24.04
+    # Debian 11 = glibc 2.31, the same as Ubuntu 20.04: the binary runs on the panel
+    # servers and on anything newer (a binary built on 24.04 would not).
+    container: python:3.12-slim-bullseye
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Tools PyInstaller needs
+        run: apt-get update && apt-get install -y --no-install-recommends binutils
+      - uses: actions/checkout@v7
+      - name: Install (CLI only, no GUI toolkit)
+        run: python -m pip install PyMySQL paramiko pyinstaller
+      - name: Build (CLI, single file)
+        run: >
+          python -m PyInstaller --noconfirm --onefile --name "xui-db-tool-$VERSION-linux-x86_64"
+          --collect-data xdbtool --exclude-module PySide6 --paths . packaging/xui_db_tool.py
+      - name: Smoke test
+        run: |
+          bin="dist/xui-db-tool-$VERSION-linux-x86_64"
+          "$bin" --help > /dev/null
+          "$bin" --lang pt xui-migrate tests/fixtures/sample_xtream.sql --check-only | grep -q "Tabelas no dump"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: dist/xui-db-tool-*-linux-x86_64
+
+  build-python:
+    needs: [version, tests]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Wheel and sdist
+        run: |
+          python -m pip install build
+          python -m build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python
+          path: dist/*
+
+  publish:
+    needs: [version, build-windows, build-linux, build-python]
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v7
         with:
-          name: windows
+          path: assets
+          merge-multiple: true
       - name: Checksums
-        run: sha256sum XUI-DB-Tool-*-windows.zip > SHA256SUMS.txt && cat SHA256SUMS.txt
+        working-directory: assets
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
       - name: Release notes from CHANGELOG
-        env:
-          VERSION: ${{ needs.build-windows.outputs.version }}
         run: |
           awk -v v="$VERSION" '
             index($0, "## [" v "]") == 1 {on=1; next}
@@ -78,11 +148,11 @@ jobs:
             on {print}
           ' CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "XUI DB Tool $VERSION" > notes.md
-      - name: Publish
+      - name: Publish (creates the tag v$VERSION on this commit)
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          gh release create "$GITHUB_REF_NAME"
-          --title "XUI DB Tool ${{ needs.build-windows.outputs.version }}"
+          gh release create "v$VERSION" assets/*
+          --target "$GITHUB_SHA"
+          --title "XUI DB Tool $VERSION"
           --notes-file notes.md
-          XUI-DB-Tool-*-windows.zip SHA256SUMS.txt

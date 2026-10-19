@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -29,9 +30,22 @@ log = get_logger(__name__)
 
 
 def templates_dir() -> Path:
-    """Local directory holding registered template ``.sql`` files + manifest."""
+    """Local directory holding registered template ``.sql`` files + manifest.
+
+    ``$XDBTOOL_TEMPLATES`` wins; a source checkout uses its own ``templates/``; the
+    packaged app and pip installs use the user's config dir — never the current
+    directory, which would scatter ``templates/`` folders wherever the CLI is run.
+    """
     override = os.environ.get("XDBTOOL_TEMPLATES")
-    base = Path(override) if override else (Path.cwd() / "templates")
+    repo = Path(__file__).resolve().parents[2] / "templates"
+    if override:
+        base = Path(override)
+    elif not getattr(sys, "frozen", False) and (repo / "README.md").is_file():
+        base = repo
+    else:
+        from .config import config_dir
+
+        base = config_dir() / "templates"
     base.mkdir(parents=True, exist_ok=True)
     return base
 

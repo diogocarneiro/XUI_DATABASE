@@ -27,7 +27,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # Everything except the GUI toolkit: core, SSH and the offline test suite.
-          python -m pip install PyMySQL sqlparse paramiko pytest ruff
+          python -m pip install PyMySQL paramiko pytest ruff
       - name: Lint
         run: ruff check .
       - name: Test

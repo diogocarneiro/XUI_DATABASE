@@ -239,3 +239,47 @@ def test_cli_update_check(github, capsys):
     assert main(["update", "--check"]) == 0
     out = capsys.readouterr().out
     assert "Latest: 99.0.0" in out and "update is available" in out
+
+
+def _linux_release(github, tamper=False):
+    routes, _seen = github
+    name = "xui-db-tool-0.2.0-linux-x86_64"
+    rel = updater._release(release_json("v0.2.0", [name, "SHA256SUMS.txt"]))
+    payload = b"\x7fELF new binary"
+    digest = hashlib.sha256(b"tampered" if tamper else payload).hexdigest()
+    sums = f"{digest}  {name}\n".encode()
+    for asset, body in ((rel.asset(name), payload), (rel.asset("SHA256SUMS.txt"), sums)):
+        routes[asset.download_url] = body
+    return rel
+
+
+@pytest.fixture
+def frozen_linux(monkeypatch, tmp_path):
+    exe = tmp_path / "bin" / "xui-db-tool"
+    exe.parent.mkdir()
+    exe.write_bytes(b"old binary")
+    monkeypatch.setattr(updater, "install_kind", lambda: "frozen")
+    monkeypatch.setattr(updater.sys, "platform", "linux")
+    monkeypatch.setattr(updater.sys, "executable", str(exe))
+    monkeypatch.setattr(updater.platform, "machine", lambda: "x86_64")
+    return exe
+
+
+def test_linux_binary_is_verified_and_replaced_in_place(github, frozen_linux):
+    rel = _linux_release(github)
+    assert updater.apply_update(rel) == "restart-manually"
+    assert frozen_linux.read_bytes() == b"\x7fELF new binary"
+    assert not any(p.name.endswith(".new") for p in frozen_linux.parent.iterdir())
+
+
+def test_linux_binary_with_bad_checksum_is_not_installed(github, frozen_linux):
+    rel = _linux_release(github, tamper=True)
+    with pytest.raises(UpdateError, match="mismatch"):
+        updater.apply_update(rel)
+    assert frozen_linux.read_bytes() == b"old binary"
+
+
+def test_linux_other_architectures_are_refused(github, frozen_linux, monkeypatch):
+    monkeypatch.setattr(updater.platform, "machine", lambda: "aarch64")
+    with pytest.raises(UpdateError, match="x86_64"):
+        updater.apply_update(_linux_release(github))

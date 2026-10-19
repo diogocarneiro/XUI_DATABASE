@@ -55,3 +55,18 @@ def test_export_signatures(tmpl_env, tmp_path):
     assert out.is_file()
     data = out.read_text(encoding="utf-8")
     assert "xtream_ui" in data and "sample_xtream" not in data  # names only, no SQL
+
+
+def test_templates_dir_never_follows_the_current_directory(monkeypatch, tmp_path):
+    import sys
+
+    from xdbtool.core import templates as tm
+    from xdbtool.core.config import config_dir
+
+    monkeypatch.delenv("XDBTOOL_TEMPLATES", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)   # packaged app
+    assert tm.templates_dir() == config_dir() / "templates"
+    assert not (tmp_path / "templates").exists()
+    monkeypatch.setenv("XDBTOOL_TEMPLATES", str(tmp_path / "custom"))
+    assert tm.templates_dir() == tmp_path / "custom"

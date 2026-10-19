@@ -557,6 +557,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command in (None, "gui"):
+        import importlib.util
+
+        if importlib.util.find_spec("PySide6") is None:  # CLI-only build or install
+            parser.print_help()
+            if args.command == "gui":
+                print("\nThis build has no graphical interface (PySide6 is not installed); "
+                      "use the commands above.", file=sys.stderr)
+                return 2
+            return 0
         from .gui.app import run
         return run(language=args.lang)
     set_language(args.lang or SOURCE_LANGUAGE)  # CLI output stays English unless asked

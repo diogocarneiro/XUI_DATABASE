@@ -30,20 +30,21 @@ pip install -r requirements-dev.txt
 
 ## Releases
 
-The version lives only in `xdbtool/__init__.py` (`__version__`); `pyproject.toml`
-reads it. To publish:
+Releases are automatic — no tags by hand. The version lives only in
+`xdbtool/__init__.py` (`__version__`; `pyproject.toml` reads it). To publish:
 
-1. Set `__version__` (e.g. `0.2.0`) and rename `## [Unreleased]` in
-   `CHANGELOG.md` to `## [0.2.0] - YYYY-MM-DD` (its text becomes the release notes).
-2. Commit, then tag and push the tag:
-   ```bash
-   git tag v0.2.0
-   git push origin v0.2.0
-   ```
-3. `.github/workflows/release.yml` runs the tests, refuses a tag that does not
-   match `__version__`, builds the Windows app, and publishes the GitHub Release
-   with `XUI-DB-Tool-0.2.0-windows.zip` and `SHA256SUMS.txt` — the files the
-   in-app updater downloads and verifies.
+1. Set `__version__` (e.g. `0.3.0`) and turn `## [Unreleased]` in `CHANGELOG.md`
+   into `## [0.3.0] - YYYY-MM-DD` (its text becomes the release notes; keep an
+   empty `## [Unreleased]` above it).
+2. Commit and push to `main`.
+
+On every push `.github/workflows/release.yml` reads the version; if `v0.3.0` is
+not released yet it runs the tests, builds the three formats — Windows GUI zip,
+Linux CLI single binary (built on Debian 11 / glibc 2.31 so it runs on Ubuntu
+20.04+), wheel + sdist — smoke-tests each binary, writes `SHA256SUMS.txt` and
+publishes the release, creating the tag. A version without its CHANGELOG section
+fails on purpose. Pushes that do not change the version finish in seconds.
+To retry a failed release: *Actions → Release → Run workflow*.
 
 ## Translations
 

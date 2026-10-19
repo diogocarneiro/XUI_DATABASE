@@ -277,3 +277,15 @@ def test_write_script_gzip(tmp_path):
     out = write_script(prepare_dump(XC_DUMP), tmp_path / "x.sql.gz")
     with gzip.open(out, "rt", encoding="utf-8") as fh:
         assert "USE `xui_migrate`;" in fh.read()
+
+
+def test_cli_only_build_shows_help_instead_of_the_gui(monkeypatch, capsys):
+    import importlib.util
+
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda name, *a: None if name == "PySide6" else real(name, *a))
+    assert main([]) == 0
+    assert "usage: xui-db-tool" in capsys.readouterr().out
+    assert main(["gui"]) == 2
+    assert "no graphical interface" in capsys.readouterr().err

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xui-db-tool"
-version = "0.1.0"
+dynamic = ["version"]
 description = "GUI tool to inspect, back up, repair and migrate XUI / Xtream-UI / StreamCreed panel databases."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,6 +27,9 @@ xui-db-tool = "xdbtool.__main__:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6", "pyinstaller>=6.6"]
+
+[tool.setuptools.dynamic]
+version = { attr = "xdbtool.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["xdbtool*"]

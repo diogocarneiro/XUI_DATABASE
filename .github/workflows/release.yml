@@ -1,0 +1,88 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Diogo Carneiro <diogoncarneiro@outlook.com>
+# XUI DB Tool — https://github.com/diogocarneiro/XUI_DATABASE
+#
+# Publish a release: bump xdbtool/__init__.py __version__, add a "## [X.Y.Z]" section
+# to CHANGELOG.md, commit, then:   git tag vX.Y.Z && git push origin vX.Y.Z
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  tests:
+    uses: ./.github/workflows/ci.yml
+
+  build-windows:
+    needs: tests
+    runs-on: windows-2025
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Check the tag matches the code version
+        id: version
+        shell: bash
+        run: |
+          code=$(python -c "import xdbtool; print(xdbtool.__version__)")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$code" != "$tag" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match xdbtool.__version__ ($code)"
+            exit 1
+          fi
+          echo "version=$code" >> "$GITHUB_OUTPUT"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+      - name: Build
+        # `python -m` from the repo root puts xdbtool on sys.path, so --collect-data
+        # finds the translations and panel signatures (plain `pyinstaller` does not).
+        run: >
+          python -m PyInstaller --noconfirm --windowed --name XUI-DB-Tool
+          --collect-data xdbtool --paths . packaging/xui_db_tool.py
+      - name: Package
+        shell: pwsh
+        run: |
+          $zip = "XUI-DB-Tool-${{ steps.version.outputs.version }}-windows.zip"
+          Compress-Archive -Path dist/XUI-DB-Tool -DestinationPath $zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: XUI-DB-Tool-*-windows.zip
+
+  publish:
+    needs: build-windows
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: windows
+      - name: Checksums
+        run: sha256sum XUI-DB-Tool-*-windows.zip > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Release notes from CHANGELOG
+        env:
+          VERSION: ${{ needs.build-windows.outputs.version }}
+        run: |
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 {on=1; next}
+            on && index($0, "## [") == 1 {exit}
+            on {print}
+          ' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "XUI DB Tool $VERSION" > notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME"
+          --title "XUI DB Tool ${{ needs.build-windows.outputs.version }}"
+          --notes-file notes.md
+          XUI-DB-Tool-*-windows.zip SHA256SUMS.txt

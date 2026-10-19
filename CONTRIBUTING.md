@@ -28,6 +28,23 @@ pip install -r requirements-dev.txt
 - Treat panel data as the owner's. Do not add features that decrypt, crack or
   otherwise defeat stored credentials; migration copies hashes verbatim.
 
+## Releases
+
+The version lives only in `xdbtool/__init__.py` (`__version__`); `pyproject.toml`
+reads it. To publish:
+
+1. Set `__version__` (e.g. `0.2.0`) and rename `## [Unreleased]` in
+   `CHANGELOG.md` to `## [0.2.0] - YYYY-MM-DD` (its text becomes the release notes).
+2. Commit, then tag and push the tag:
+   ```bash
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+3. `.github/workflows/release.yml` runs the tests, refuses a tag that does not
+   match `__version__`, builds the Windows app, and publishes the GitHub Release
+   with `XUI-DB-Tool-0.2.0-windows.zip` and `SHA256SUMS.txt` — the files the
+   in-app updater downloads and verifies.
+
 ## Translations
 
 User-facing text is written in English and wrapped in `_()` (from `xdbtool.i18n`);

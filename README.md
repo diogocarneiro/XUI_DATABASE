@@ -284,9 +284,29 @@ ruff check .    # lint
 
 ```bash
 pip install -r requirements-dev.txt
-pyinstaller --noconfirm --windowed --name XUI-DB-Tool -p . xdbtool/__main__.py
+# from the repository root (so --collect-data finds the translations):
+python -m PyInstaller --noconfirm --windowed --name XUI-DB-Tool \
+    --collect-data xdbtool --paths . packaging/xui_db_tool.py
 # result in dist/XUI-DB-Tool/
 ```
+
+Tagged releases build this automatically (see *Releases* in CONTRIBUTING.md).
+
+## Updates
+
+*Ajuda → Procurar actualizações…* (and, by default, a silent check at startup)
+compares the installed version with the latest GitHub Release and shows its
+notes. **Update now** then:
+
+- **Windows app** — downloads `XUI-DB-Tool-<version>-windows.zip`, verifies it
+  against the release's `SHA256SUMS.txt` (a mismatch is refused), and restarts
+  into the new version once the app has closed;
+- **pip install** — installs the release's source with `pip install --upgrade`;
+- **git checkout** — nothing is changed; use `git pull`.
+
+CLI: `python -m xdbtool update --check` (report only) or `update` (install).
+While the repository is private, set a fine-grained token with read-only
+*Contents* access in *Ajuda → Token do GitHub* or `XDBTOOL_GITHUB_TOKEN`.
 
 ## License
 

@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -39,8 +39,14 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
-from ..core import profiles, templates, xui_import, xui_migrate
-from ..core.config import ConnectionProfile, load_store, save_settings, save_store
+from ..core import profiles, templates, updater, xui_import, xui_migrate
+from ..core.config import (
+    ConnectionProfile,
+    load_settings,
+    load_store,
+    save_settings,
+    save_store,
+)
 from ..core.dump_source import SqlDumpSource
 from ..core.exporter import ExportOptions, export_tables
 from ..core.migrator import MigrationOptions, build_plan, execute_plan
@@ -57,6 +63,7 @@ from .workers import JobRunner
 
 REDACT_HINTS = frozenset({"password", "pass", "pwd", "secret", "token", "api_key", "apikey"})
 SQL_FILTER = "SQL (*.sql);;*.*"
+_startup_check_done = False
 
 
 class MainWindow(QMainWindow):
@@ -66,8 +73,13 @@ class MainWindow(QMainWindow):
         self.resize(1040, 720)
         self.source: DataSource | None = None
         self.runner = JobRunner(self)
+        self.update_runner = JobRunner(self)  # update checks never block real work
         self._build_ui()
         self._load_profiles()
+        global _startup_check_done
+        if not _startup_check_done and load_settings().get("check_updates", True):
+            _startup_check_done = True  # once per run, not again after a language switch
+            QTimer.singleShot(2000, lambda: self._check_updates(silent=True))
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:
@@ -107,9 +119,103 @@ class MainWindow(QMainWindow):
             act.triggered.connect(lambda _c=False, c=code: self._change_language(c))
             group.addAction(act)
             lang_menu.addAction(act)
+        help_menu = self.menuBar().addMenu(_("Help"))
+        check = QAction(_("Check for updates…"), self)
+        check.triggered.connect(lambda: self._check_updates(silent=False))
+        auto_check = QAction(_("Check for updates at startup"), self, checkable=True)
+        auto_check.setChecked(bool(load_settings().get("check_updates", True)))
+        auto_check.toggled.connect(lambda on: save_settings(check_updates=on))
+        token = QAction(_("GitHub token (private repository)…"), self)
+        token.triggered.connect(self._set_github_token)
         about = QAction(_("About"), self)
         about.triggered.connect(self._about)
-        self.menuBar().addMenu(_("Help")).addAction(about)
+        for act in (check, auto_check, token):
+            help_menu.addAction(act)
+        help_menu.addSeparator()
+        help_menu.addAction(about)
+
+    # ------------------------------------------------------------ updates
+    def _check_updates(self, silent: bool) -> None:
+        if self.update_runner.busy:
+            return
+        token = updater.token_from_env(load_settings())
+
+        def job(progress, message):
+            return updater.check(token)
+
+        def done(result):
+            newer, release = result
+            if newer:
+                self._offer_update(release)
+            elif not silent:
+                QMessageBox.information(self, _("No updates"), _(
+                    "You have the latest version ({version}).", version=__version__))
+
+        def failed(err):
+            self._log(_("Update check failed: {error}", error=err))
+            if not silent:
+                QMessageBox.warning(self, _("Update check failed"), err)
+
+        if not silent:
+            self._log(_("Checking for updates…"))
+        self.update_runner.start(job, on_finished=done, on_failed=failed)
+
+    def _offer_update(self, release) -> None:
+        kind = updater.install_kind()
+        box = QMessageBox(self)
+        box.setWindowTitle(_("Update available"))
+        box.setIcon(QMessageBox.Information)
+        box.setText(_("Version {new} is available (you have {current}).",
+                      new=release.version, current=__version__))
+        if kind == "git":
+            box.setInformativeText(_("This copy runs from a git checkout; update it with "
+                                     "`git pull` instead."))
+        if release.notes:
+            box.setDetailedText(release.notes)
+        update_btn = box.addButton(_("Update now"), QMessageBox.AcceptRole)
+        update_btn.setEnabled(kind != "git")
+        page_btn = box.addButton(_("Open release page"), QMessageBox.ActionRole)
+        box.addButton(_("Later"), QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is page_btn:
+            QDesktopServices.openUrl(QUrl(release.html_url))
+        elif box.clickedButton() is update_btn:
+            self._apply_update(release)
+
+    def _apply_update(self, release) -> None:
+        if self.runner.busy:
+            QMessageBox.information(self, _("Busy"), _("Another operation is still running."))
+            return
+        token = updater.token_from_env(load_settings())
+
+        def job(progress, message):
+            return updater.apply_update(release, token, progress=progress, message=message)
+
+        def done(result):
+            self.progress.setValue(100)
+            if result == "restart":
+                QMessageBox.information(self, _("Update ready"), _(
+                    "The app will now close and restart on version {version}.",
+                    version=release.version))
+                QApplication.instance().quit()
+            else:
+                QMessageBox.information(self, _("Update installed"), _(
+                    "Version {version} is installed. Restart the app to use it.",
+                    version=release.version))
+
+        self._log(_("Updating to {version}…", version=release.version))
+        self._start_custom(job, done)
+
+    def _set_github_token(self) -> None:
+        current = load_settings().get("github_token", "")
+        text, ok = QInputDialog.getText(
+            self, _("GitHub token"),
+            _("Only needed while the repository is private: a fine-grained token with "
+              "read-only access to its Contents. Leave empty to remove it."),
+            QLineEdit.Password, current)
+        if ok:
+            save_settings(github_token=text.strip())
+            self._log(_("GitHub token saved.") if text.strip() else _("GitHub token removed."))
 
     def _build_header(self) -> QWidget:
         header = QWidget()

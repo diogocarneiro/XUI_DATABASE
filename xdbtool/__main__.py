@@ -340,6 +340,36 @@ def cmd_xui_import(args) -> int:
     return 0
 
 
+def cmd_update(args) -> int:
+    from . import __version__
+    from .core import updater
+    from .core.config import load_settings
+
+    token = args.token or updater.token_from_env(load_settings())
+    try:
+        newer, release = updater.check(token, include_prereleases=args.pre)
+    except updater.UpdateError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    print(f"Installed: {__version__}   Latest: {release.version} ({release.html_url})")
+    if not newer:
+        print("Up to date.")
+        return 0
+    if args.check:
+        print("An update is available; run `update` without --check to install it.")
+        return 0
+    try:
+        result = updater.apply_update(release, token, progress=_cli_progress,
+                                      message=lambda m: print(m, file=sys.stderr))
+    except updater.UpdateError as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        return 2
+    print(file=sys.stderr)
+    print("Update staged: the app restarts when this process exits." if result == "restart"
+          else f"Installed {release.version}. Restart the app to use it.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="xui-db-tool", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -478,6 +508,13 @@ def build_parser() -> argparse.ArgumentParser:
     pxi.add_argument("--sql-out", help="Offline: write the import SQL (needs --template)")
     pxi.add_argument("--template", help="Template key used as target schema with --sql-out")
     pxi.set_defaults(func=cmd_xui_import)
+
+    pu = sub.add_parser("update", help="Check GitHub Releases for a new version and install it")
+    pu.add_argument("--check", action="store_true", help="Only report whether one exists")
+    pu.add_argument("--pre", action="store_true", help="Include pre-releases")
+    pu.add_argument("--token", default="",
+                    help="GitHub token (private repo); default: $XDBTOOL_GITHUB_TOKEN or setting")
+    pu.set_defaults(func=cmd_update)
     return p
 
 

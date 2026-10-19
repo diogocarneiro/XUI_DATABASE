@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 ### Added
+- **Updates from GitHub Releases**: *Ajuda → Procurar actualizações…*, optional
+  check at startup, CLI `update [--check]`. Windows app: downloads the release
+  zip, verifies it against `SHA256SUMS.txt`, swaps the files after exit and
+  restarts; pip installs: `pip install --upgrade` of the release source; git
+  checkouts: never modified. Optional GitHub token for a private repository
+  (never forwarded to other hosts on redirects). New `core/updater.py`.
+- **Release workflow** (`.github/workflows/release.yml`): on a `v*` tag, run the
+  tests, check the tag matches `__version__`, build the Windows app with
+  PyInstaller (`packaging/xui_db_tool.py`), publish the release with the zip,
+  `SHA256SUMS.txt` and the CHANGELOG section as notes.
+
+### Changed
+- CI: pinned `ubuntu-24.04`, latest `actions/checkout`/`setup-python`,
+  `fail-fast: false`, Python 3.13 added, paramiko installed for the SSH tests.
+- Version is single-sourced from `xdbtool.__version__` (pyproject `dynamic`).
+- README build command fixed (PyInstaller via `packaging/xui_db_tool.py` with
+  `--collect-data xdbtool`; the old command broke relative imports and left out
+  the translations).
 - **Modern design with Light / Dark / Automatic themes** (menu *Tema*, saved in
   `settings.json`; Automatic follows the OS live via `colorSchemeChanged`).
   New `gui/theme.py`: colour tokens, generated QSS (cards, underline tabs,

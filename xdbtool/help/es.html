@@ -4,7 +4,7 @@ ZapX, Xtream Codes v2) que gestionan bases de datos <b>propias o que están auto
 gestionar</b>.</p>
 <p><b>Índice:</b>
 <a href="#start">Empezar</a> · <a href="#source">Origen de los datos</a> ·
-<a href="#ssh">Conexión SSH</a> · <a href="#viewer">Ver datos</a> · <a href="#export">Exportar</a> ·
+<a href="#ssh">Conexión SSH</a> · <a href="#viewer">Ver y editar datos</a> · <a href="#export">Exportar</a> ·
 <a href="#maintenance">Mantenimiento</a> · <a href="#integrity">Integridad</a> · <a href="#renumber">Renumerar ids</a> · <a href="#templates">Plantillas</a> ·
 <a href="#migrate">Migrar / Restaurar</a> · <a href="#xui-migrate">Migración a XUI</a> ·
 <a href="#xui-import">Importar copia XUI</a> · <a href="#safety">Seguridad</a> ·
@@ -46,7 +46,7 @@ contraseña <i>SSH</i>; deja vacía la contraseña MySQL.</li>
 </ul>
 <p>Las pestañas Plantillas y Migrar / Restaurar ofrecen la misma elección.</p>
 
-<h2><a name="viewer"></a>Ver datos</h2>
+<h2><a name="viewer"></a>Ver y editar datos</h2>
 <p>Haz doble clic en una tabla de la lista <b>Tablas</b> (o selecciónala y pulsa <b>Ver
 datos…</b>) para abrir sus filas en una ventana aparte; puedes tener varias tablas abiertas a la
 vez. Funciona con bases de datos en vivo y con dumps — en vivo, la búsqueda, la ordenación y la
@@ -65,9 +65,38 @@ cálculo).</li>
 <li>Contraseñas, hashes, tokens y claves se muestran como ••••••; marca <b>Mostrar
 contraseñas/claves</b> para verlos.</li>
 </ul>
-<p>La ventana es de solo lectura. Línea de comandos: <code>view streams --dump archivo.sql
+<p>Línea de comandos: <code>view streams --dump archivo.sql
 --search sport --columns id,stream_display_name --order id</code> (<code>--json</code> para
 JSON).</p>
+<h3>Editar (conexión en vivo)</h3>
+<p>Marca <b>Modo edición</b> para cambiar la tabla en el servidor. Está disponible en una
+conexión en vivo para tablas con clave primaria (la clave en sí no se puede editar — para los
+ids de los streams usa <a href="#renumber">Renumerar ids</a>).</p>
+<ul>
+<li>Haz doble clic en una celda (o empieza a escribir) para cambiarla; las celdas editadas se
+ponen amarillas.</li>
+<li><b>Añadir fila</b> añade una fila vacía (verde): rellena las celdas que necesites, las demás
+reciben el valor predeterminado — <i>(auto)</i> marca el id que asigna el servidor.
+<b>Duplicar</b> copia las filas seleccionadas como filas nuevas, útil para crear un canal
+parecido a otro.</li>
+<li><b>Eliminar / restaurar</b> marca las filas seleccionadas para eliminar (rojo, tachadas);
+otro clic las conserva. <b>Poner NULL</b> vacía las celdas seleccionadas.</li>
+<li><b>Importar CSV/JSON…</b> añade las filas de un archivo: un CSV con línea de encabezado
+(separado por comas, punto y coma o tabuladores — los archivos de Excel guardados como CSV
+funcionan) o una lista JSON de objetos. Las columnas se asocian por nombre; las desconocidas se
+indican y se ignoran; las celdas CSV vacías reciben el valor predeterminado.</li>
+<li>No se escribe nada hasta <b>Guardar cambios…</b>: muestra qué va a cambiar y el SQL, y
+guarda todo en una sola transacción. Si el panel modificó alguna de esas filas entretanto, no se
+guarda nada. Se escribe en la carpeta de exportación un script para deshacer
+(<code>edit-TABLA-FECHA.undo.sql</code>) con los valores anteriores — ejecútalo con
+<code>mysql</code> o en <b>Migrar / Restaurar</b> para volver atrás.</li>
+</ul>
+<p>Los valores se comprueban al escribir: números enteros en columnas numéricas, JSON válido
+donde la celda tenía una lista JSON (canales de bouquets, categorías…), y un aviso antes de que
+un texto simple sustituya un hash de contraseña. Cambiar de página pide descartar los cambios
+sin guardar. Línea de comandos: <code>edit streams --host … --key id=300 --set
+stream_display_name="SPORT HD"</code>, <code>--delete</code>, <code>--insert --set …</code>,
+<code>--import filas.csv</code>, y <code>--dry-run</code> para ver solo el SQL.</p>
 
 <h2><a name="export"></a>Exportar / Copia</h2>
 <p>Exporta las tablas marcadas en <b>JSON</b>, <b>CSV</b> o <b>SQL</b> (con

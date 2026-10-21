@@ -11,6 +11,7 @@
     xui-db-tool check  <args>   # integrity check: broken links between tables
     xui-db-tool renumber <args> # renumber stream ids to 1..N (every reference too)
     xui-db-tool view <table> <args>  # show rows: search, sort, paging
+    xui-db-tool edit <table> <args>  # change/insert/delete/import rows (live, undo script)
     xui-db-tool migrate <args>  # migrate between databases
     xui-db-tool xui-migrate <dump> <args>  # stage an old panel DB as `xui_migrate`
 
@@ -259,6 +260,81 @@ def cmd_view(args) -> int:
     first = page.offset + 1 if page.rows else 0
     print(f"\nRows {first}-{page.offset + len(page.rows)} of {page.total}"
           + (f" matching {args.search!r}" if args.search else ""))
+    return 0
+
+
+def _assignments(items, info, what: str) -> dict:
+    from .core.editor import coerce
+
+    cols = {c.name: c for c in info.columns}
+    out = {}
+    for item in items or []:
+        name, sep, text = item.partition("=")
+        if not sep or name not in cols:
+            raise SystemExit(f"{what} {item!r}: use COLUMN=VALUE with a column of the table")
+        try:
+            out[name] = coerce(text, cols[name])
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from None
+    return out
+
+
+def cmd_edit(args) -> int:
+    from .core import editor
+    from .core.mysql_source import MySQLSource
+
+    with _open_source(args) as src:
+        if not isinstance(src, MySQLSource):
+            print("edit needs a live MySQL/MariaDB connection (--host).", file=sys.stderr)
+            return 2
+        info = src.table_info(args.table)
+        reason = editor.editable_reason(src, info)
+        if reason:
+            print(reason, file=sys.stderr)
+            return 2
+        values = _assignments(args.set, info, "--set")
+        for name in args.null or []:
+            values[name] = editor.coerce(None, {c.name: c for c in info.columns}[name])
+        if args.import_file:
+            changes, unknown = editor.import_changes(editor.read_rows_file(args.import_file),
+                                                     info)
+            if unknown:
+                print(f"Columns not in `{args.table}`, ignored: {', '.join(unknown)}")
+        elif args.insert:
+            changes = [editor.Change(editor.INSERT, values)]
+        else:
+            key = _assignments(args.key, info, "--key")
+            if set(key) != set(editor.key_columns(info)):
+                print(f"--key must give exactly the primary key: "
+                      f"{', '.join(editor.key_columns(info))}", file=sys.stderr)
+                return 2
+            row = editor.fetch_row(src, args.table, key)
+            if row is None:
+                print("No row has that key.", file=sys.stderr)
+                return 1
+            if args.delete:
+                changes = [editor.Change(editor.DELETE, key=key, old=row)]
+            else:
+                values = {c: v for c, v in values.items() if v != row[c]}
+                if not values:
+                    print("Nothing to change: the row already holds these values.")
+                    return 0
+                cols = {c.name: c for c in info.columns}
+                for c, v in values.items():
+                    error, warning = editor.check_value(cols[c], row[c], v)
+                    if error or (warning and not args.force):
+                        print((error or warning + " (use --force)"), file=sys.stderr)
+                        return 2
+                changes = [editor.Change(editor.UPDATE, values, key,
+                                         {c: row[c] for c in values})]
+        for change in changes:
+            print(editor.change_sql(args.table, change) + ";")
+        if args.dry_run:
+            return 0
+        result = editor.apply_changes(src, args.table, changes, backup_dir=args.backup_dir)
+        counts = result["counts"]
+        print(f"Saved: {counts['update']} changed, {counts['insert']} added, "
+              f"{counts['delete']} deleted. Undo script: {result['undo']}")
     return 0
 
 
@@ -543,6 +619,27 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--show-secrets", action="store_true",
                     help="Show password/token/key columns (masked by default)")
     pv.set_defaults(func=cmd_view)
+
+    pe2 = sub.add_parser(
+        "edit", help="Change, insert, delete or import rows (live MySQL; writes an undo script)")
+    _add_source_args(pe2)
+    pe2.add_argument("table")
+    pe2.add_argument("--key", action="append", metavar="COLUMN=VALUE",
+                     help="Primary key of the row to change/delete (repeat for each column)")
+    pe2.add_argument("--set", action="append", metavar="COLUMN=VALUE",
+                     help="New value (repeatable)")
+    pe2.add_argument("--null", action="append", metavar="COLUMN", help="Set a column to NULL")
+    what = pe2.add_mutually_exclusive_group()
+    what.add_argument("--delete", action="store_true", help="Delete the row given by --key")
+    what.add_argument("--insert", action="store_true", help="Insert a new row from --set/--null")
+    what.add_argument("--import", dest="import_file", metavar="FILE",
+                      help="Insert the rows of a CSV (header line) or JSON file")
+    pe2.add_argument("--force", action="store_true",
+                     help="Also overwrite a password hash with plain text")
+    pe2.add_argument("--dry-run", action="store_true", help="Only print the SQL")
+    pe2.add_argument("--backup-dir", default="backups",
+                     help="Where the undo script is written (default: ./backups)")
+    pe2.set_defaults(func=cmd_edit)
 
     pg = sub.add_parser("migrate", help="Migrate rows into a target MySQL database")
     _add_source_args(pg)

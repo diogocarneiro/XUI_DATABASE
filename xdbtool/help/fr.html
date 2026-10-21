@@ -4,7 +4,7 @@ StreamCreed, ZapX, Xtream Codes v2) qui gèrent des bases de données <b>qui leu
 ou qu'ils sont autorisés à gérer</b>.</p>
 <p><b>Sommaire :</b>
 <a href="#start">Démarrer</a> · <a href="#source">Source des données</a> ·
-<a href="#ssh">Connexion SSH</a> · <a href="#viewer">Voir les données</a> · <a href="#export">Export</a> ·
+<a href="#ssh">Connexion SSH</a> · <a href="#viewer">Voir et modifier les données</a> · <a href="#export">Export</a> ·
 <a href="#maintenance">Maintenance</a> · <a href="#integrity">Intégrité</a> · <a href="#renumber">Renuméroter les ids</a> · <a href="#templates">Modèles</a> ·
 <a href="#migrate">Migrer / Restaurer</a> · <a href="#xui-migrate">Migration vers XUI</a> ·
 <a href="#xui-import">Importer une sauvegarde XUI</a> · <a href="#safety">Sécurité</a> ·
@@ -48,7 +48,7 @@ passe, comme celui de <code>/home/xui/config/config.ini</code>.</li>
 </ul>
 <p>Les onglets Modèles et Migrer / Restaurer proposent le même choix.</p>
 
-<h2><a name="viewer"></a>Voir les données</h2>
+<h2><a name="viewer"></a>Voir et modifier les données</h2>
 <p>Double-cliquez sur une table de la liste <b>Tables</b> (ou sélectionnez-la et cliquez sur
 <b>Voir les données…</b>) pour ouvrir ses lignes dans une fenêtre séparée ; plusieurs tables
 peuvent être ouvertes en même temps. Fonctionne sur les bases en direct et les dumps — en direct,
@@ -67,9 +67,41 @@ tableur).</li>
 <li>Les mots de passe, hashes, jetons et clés s'affichent en •••••• ; cochez <b>Afficher mots de
 passe/clés</b> pour les voir.</li>
 </ul>
-<p>La fenêtre est en lecture seule. Ligne de commande : <code>view streams --dump fichier.sql
+<p>Ligne de commande : <code>view streams --dump fichier.sql
 --search sport --columns id,stream_display_name --order id</code> (<code>--json</code> pour du
 JSON).</p>
+<h3>Modification (connexion en direct)</h3>
+<p>Cochez <b>Mode édition</b> pour modifier la table sur le serveur. Disponible en connexion
+directe pour les tables ayant une clé primaire (la clé elle-même n'est pas modifiable —
+utilisez <a href="#renumber">Renuméroter les ids</a> pour les ids des streams).</p>
+<ul>
+<li>Double-cliquez sur une cellule (ou commencez à taper) pour la modifier ; les cellules
+modifiées passent en jaune.</li>
+<li><b>Ajouter une ligne</b> ajoute une ligne vide (verte) : remplissez les cellules utiles, les
+autres prennent la valeur par défaut — <i>(auto)</i> marque l'id attribué par le serveur.
+<b>Dupliquer</b> copie les lignes sélectionnées en nouvelles lignes, pratique pour créer une
+chaîne semblable à une autre.</li>
+<li><b>Supprimer / rétablir</b> marque les lignes sélectionnées pour suppression (rouge,
+barrées) ; cliquez à nouveau pour les garder. <b>Mettre à NULL</b> vide les cellules
+sélectionnées.</li>
+<li><b>Importer CSV/JSON…</b> ajoute les lignes d'un fichier : un CSV avec ligne d'en-tête
+(séparé par virgules, points-virgules ou tabulations — les fichiers Excel enregistrés en CSV
+fonctionnent) ou une liste JSON d'objets. Les colonnes sont associées par nom ; les inconnues
+sont listées et ignorées ; les cellules CSV vides prennent la valeur par défaut.</li>
+<li>Rien n'est écrit avant <b>Enregistrer les modifications…</b> : il montre ce qui va changer
+et le SQL, puis enregistre tout dans une transaction. Si le panel a modifié une de ces lignes
+entre-temps, rien n'est enregistré. Un script d'annulation
+(<code>edit-TABLE-DATE.undo.sql</code>) avec les valeurs précédentes est écrit dans le dossier
+d'export — exécutez-le avec <code>mysql</code> ou <b>Migrer / Restaurer</b> pour revenir en
+arrière.</li>
+</ul>
+<p>Les valeurs sont vérifiées à la saisie : nombres entiers pour les colonnes numériques, JSON
+valide là où la cellule contenait une liste JSON (chaînes des bouquets, catégories…), et un
+avertissement avant qu'un texte simple ne remplace un hash de mot de passe. Changer de page
+demande d'abandonner les modifications non enregistrées. Ligne de commande : <code>edit streams
+--host … --key id=300 --set stream_display_name="SPORT HD"</code>, <code>--delete</code>,
+<code>--insert --set …</code>, <code>--import lignes.csv</code>, et <code>--dry-run</code> pour
+voir seulement le SQL.</p>
 
 <h2><a name="export"></a>Export / Sauvegarde</h2>
 <p>Exporte les tables cochées en <b>JSON</b>, <b>CSV</b> ou <b>SQL</b> (avec

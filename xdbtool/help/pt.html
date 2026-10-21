@@ -3,7 +3,7 @@
 ZapX, Xtream Codes v2) que gerem bases de dados <b>suas ou que estão autorizados a gerir</b>.</p>
 <p><b>Índice:</b>
 <a href="#start">Começar</a> · <a href="#source">Origem dos dados</a> ·
-<a href="#ssh">Ligação por SSH</a> · <a href="#viewer">Ver dados</a> · <a href="#export">Exportar</a> ·
+<a href="#ssh">Ligação por SSH</a> · <a href="#viewer">Ver e editar dados</a> · <a href="#export">Exportar</a> ·
 <a href="#maintenance">Manutenção</a> · <a href="#integrity">Integridade</a> · <a href="#renumber">Renumerar IDs</a> · <a href="#templates">Templates</a> ·
 <a href="#migrate">Migrar / Restaurar</a> · <a href="#xui-migrate">Migração para XUI</a> ·
 <a href="#xui-import">Importar backup XUI</a> · <a href="#safety">Segurança</a> ·
@@ -45,7 +45,7 @@ exemplo o do <code>/home/xui/config/config.ini</code>.</li>
 </ul>
 <p>Os separadores Templates e Migrar / Restaurar têm a mesma escolha.</p>
 
-<h2><a name="viewer"></a>Ver dados</h2>
+<h2><a name="viewer"></a>Ver e editar dados</h2>
 <p>Faz duplo clique numa tabela da lista <b>Tabelas</b> (ou selecciona-a e clica em <b>Ver
 dados…</b>) para abrir as linhas numa janela à parte; podes ter várias tabelas abertas ao mesmo
 tempo. Funciona com bases de dados em directo e com dumps — numa ligação em directo a pesquisa,
@@ -64,8 +64,39 @@ cálculo).</li>
 <li>Passwords, hashes, tokens e chaves aparecem como ••••••; marca <b>Mostrar passwords/chaves</b>
 para os ver.</li>
 </ul>
-<p>A janela é só de leitura. Linha de comandos: <code>view streams --dump ficheiro.sql --search
+<p>Linha de comandos: <code>view streams --dump ficheiro.sql --search
 sport --columns id,stream_display_name --order id</code> (<code>--json</code> para JSON).</p>
+<h3>Editar (ligação em directo)</h3>
+<p>Marca <b>Modo de edição</b> para alterar a tabela no servidor. Está disponível numa ligação
+em directo, para tabelas com chave primária (a própria chave não é editável — para os IDs dos
+streams usa <a href="#renumber">Renumerar IDs</a>).</p>
+<ul>
+<li>Faz duplo clique numa célula (ou começa a escrever) para a alterar; as células editadas
+ficam amarelas.</li>
+<li><b>Adicionar linha</b> acrescenta uma linha vazia (verde): preenche as células que
+precisares, as outras recebem o valor por omissão da tabela — <i>(auto)</i> marca o ID que o
+servidor atribui. <b>Duplicar</b> copia as linhas seleccionadas como linhas novas, útil para
+criar um canal parecido com outro.</li>
+<li><b>Apagar / repor</b> marca as linhas seleccionadas para apagar (vermelho, riscadas); clica
+outra vez para as manter. <b>Pôr NULL</b> esvazia as células seleccionadas.</li>
+<li><b>Importar CSV/JSON…</b> acrescenta as linhas de um ficheiro como linhas novas: um CSV com
+linha de cabeçalho (separado por vírgulas, ponto e vírgula ou tabulações — ficheiros do Excel
+gravados como CSV funcionam) ou uma lista JSON de objectos. As colunas são associadas pelo nome;
+as desconhecidas são indicadas e ignoradas; células vazias do CSV recebem o valor por
+omissão.</li>
+<li>Nada é escrito até clicares em <b>Guardar alterações…</b>: mostra o que vai mudar e o SQL, e
+grava tudo numa só transacção. Se o painel tiver alterado alguma dessas linhas entretanto, nada
+é guardado. É gravado na pasta de exportação um script de desfazer
+(<code>edit-TABELA-DATA.undo.sql</code>) com os valores anteriores — corre-o com
+<code>mysql</code> ou em <b>Migrar / Restaurar</b> para voltar atrás.</li>
+</ul>
+<p>Os valores são verificados à medida que escreves: números inteiros nas colunas numéricas,
+JSON válido onde a célula tinha uma lista JSON (canais de bouquets, categorias…), e um aviso
+antes de texto simples substituir um hash de password (não funcionaria como password). Mudar de
+página pede para descartar as alterações por guardar. Linha de comandos: <code>edit streams
+--host … --key id=300 --set stream_display_name="SPORT HD"</code>, <code>--delete</code>,
+<code>--insert --set …</code>, <code>--import linhas.csv</code>, e <code>--dry-run</code> para
+ver só o SQL.</p>
 
 <h2><a name="export"></a>Exportar / Backup</h2>
 <p>Exporta as tabelas marcadas em <b>JSON</b>, <b>CSV</b> ou <b>SQL</b> (com

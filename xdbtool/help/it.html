@@ -4,7 +4,7 @@ ZapX, Xtream Codes v2) che gestiscono database <b>di loro proprietà o che sono 
 gestire</b>.</p>
 <p><b>Indice:</b>
 <a href="#start">Per iniziare</a> · <a href="#source">Origine dei dati</a> ·
-<a href="#ssh">Connessione SSH</a> · <a href="#viewer">Visualizza dati</a> · <a href="#export">Esporta</a> ·
+<a href="#ssh">Connessione SSH</a> · <a href="#viewer">Visualizza e modifica dati</a> · <a href="#export">Esporta</a> ·
 <a href="#maintenance">Manutenzione</a> · <a href="#integrity">Integrità</a> · <a href="#renumber">Rinumera id</a> · <a href="#templates">Modelli</a> ·
 <a href="#migrate">Migra / Ripristina</a> · <a href="#xui-migrate">Migrazione a XUI</a> ·
 <a href="#xui-import">Importare un backup XUI</a> · <a href="#safety">Sicurezza</a> ·
@@ -45,7 +45,7 @@ password <i>SSH</i>; lascia vuota la password MySQL.</li>
 </ul>
 <p>Le schede Modelli e Migra / Ripristina offrono la stessa scelta.</p>
 
-<h2><a name="viewer"></a>Visualizza dati</h2>
+<h2><a name="viewer"></a>Visualizza e modifica dati</h2>
 <p>Fai doppio clic su una tabella dell'elenco <b>Tabelle</b> (o selezionala e fai clic su
 <b>Visualizza dati…</b>) per aprirne le righe in una finestra separata; puoi tenere aperte più
 tabelle contemporaneamente. Funziona su database live e dump — in live ricerca, ordinamento e
@@ -64,8 +64,37 @@ calcolo).</li>
 <li>Password, hash, token e chiavi appaiono come ••••••; spunta <b>Mostra password/chiavi</b> per
 vederli.</li>
 </ul>
-<p>La finestra è di sola lettura. Riga di comando: <code>view streams --dump file.sql --search
+<p>Riga di comando: <code>view streams --dump file.sql --search
 sport --columns id,stream_display_name --order id</code> (<code>--json</code> per JSON).</p>
+<h3>Modifica (connessione live)</h3>
+<p>Spunta <b>Modalità modifica</b> per cambiare la tabella sul server. È disponibile con una
+connessione live per le tabelle con chiave primaria (la chiave stessa non è modificabile — per
+gli id degli stream usa <a href="#renumber">Rinumera id</a>).</p>
+<ul>
+<li>Fai doppio clic su una cella (o inizia a scrivere) per modificarla; le celle modificate
+diventano gialle.</li>
+<li><b>Aggiungi riga</b> aggiunge una riga vuota (verde): compila le celle che ti servono, le
+altre ricevono il valore predefinito — <i>(auto)</i> indica l'id assegnato dal server.
+<b>Duplica</b> copia le righe selezionate come nuove righe, utile per creare un canale simile a
+un altro.</li>
+<li><b>Elimina / ripristina</b> segna le righe selezionate da eliminare (rosse, barrate); un
+altro clic le mantiene. <b>Imposta NULL</b> svuota le celle selezionate.</li>
+<li><b>Importa CSV/JSON…</b> aggiunge le righe di un file: un CSV con riga di intestazione
+(separato da virgole, punti e virgola o tabulazioni — i file Excel salvati come CSV funzionano)
+o una lista JSON di oggetti. Le colonne sono associate per nome; quelle sconosciute vengono
+elencate e ignorate; le celle CSV vuote ricevono il valore predefinito.</li>
+<li>Non viene scritto nulla fino a <b>Salva modifiche…</b>: mostra cosa cambierà e l'SQL, poi
+salva tutto in un'unica transazione. Se nel frattempo il pannello ha modificato una di quelle
+righe, non viene salvato nulla. Nella cartella di esportazione viene scritto uno script di
+annullamento (<code>edit-TABELLA-DATA.undo.sql</code>) con i valori precedenti — eseguilo con
+<code>mysql</code> o in <b>Migra / Ripristina</b> per tornare indietro.</li>
+</ul>
+<p>I valori vengono controllati mentre scrivi: numeri interi nelle colonne numeriche, JSON
+valido dove la cella conteneva una lista JSON (canali dei bouquet, categorie…), e un avviso
+prima che un testo semplice sostituisca un hash di password. Cambiare pagina chiede di scartare
+le modifiche non salvate. Riga di comando: <code>edit streams --host … --key id=300 --set
+stream_display_name="SPORT HD"</code>, <code>--delete</code>, <code>--insert --set …</code>,
+<code>--import righe.csv</code>, e <code>--dry-run</code> per vedere solo l'SQL.</p>
 
 <h2><a name="export"></a>Esporta / Backup</h2>
 <p>Esporta le tabelle selezionate in <b>JSON</b>, <b>CSV</b> o <b>SQL</b> (con

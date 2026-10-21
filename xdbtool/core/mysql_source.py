@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from ..i18n import N_, _
@@ -295,22 +296,32 @@ class MySQLSource(DataSource):
             rows = [tuple(r[c] for c in shown) for r in cur.fetchall()]
         return Page(shown, rows, total, offset)
 
+    @contextmanager
+    def transaction(self):
+        """A cursor inside one transaction: committed on success, rolled back on error."""
+        with self._cursor() as cur:
+            cur.execute("START TRANSACTION")
+            try:
+                yield cur
+            except BaseException:
+                cur.execute("ROLLBACK")
+                raise
+            cur.execute("COMMIT")
+
     def run_transaction(self, statements, progress=None) -> int:
         """Run ``statements`` in one transaction (rolled back on error); returns rows changed."""
         stmts = [s for s in statements if s.strip()]
         changed = 0
-        with self._cursor() as cur:
-            cur.execute("START TRANSACTION")
-            try:
+        stmt = ""
+        try:
+            with self.transaction() as cur:
                 for done, stmt in enumerate(stmts, 1):
                     changed += cur.execute(stmt) or 0
                     if progress and (done % 20 == 0 or done == len(stmts)):
                         progress("executing", done, len(stmts))
-            except Exception as exc:  # noqa: BLE001 - normalise to SourceError
-                cur.execute("ROLLBACK")
-                raise SourceError(_("Statement failed, nothing was changed: {error}",
-                                    error=exc) + f"\n--- SQL ---\n{stmt[:300]}") from exc
-            cur.execute("COMMIT")
+        except Exception as exc:  # noqa: BLE001 - normalise to SourceError
+            raise SourceError(_("Statement failed, nothing was changed: {error}",
+                                error=exc) + f"\n--- SQL ---\n{stmt[:300]}") from exc
         return changed
 
     # -- maintenance -------------------------------------------------------

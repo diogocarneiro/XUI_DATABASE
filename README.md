@@ -33,6 +33,10 @@ MySQL/MariaDB connection or from an offline `mysqldump` `.sql` file.
   columns or one), sort by clicking a header, page through millions of rows (done in
   SQL on live servers), full row details with readable JSON, copy cells;
   passwords/tokens/keys masked until you ask. CLI: `view <table>`.
+- **Edit data** — on a live server, change cells, add, duplicate and delete rows,
+  set NULL, or import rows from CSV/JSON; changes are highlighted until saved in one
+  transaction, rows changed meanwhile by the panel are never overwritten, and an undo
+  script with the previous values is written. CLI: `edit <table>`.
 - **Integrity check** — finds rows pointing at deleted streams, categories, bouquets,
   servers or lines (bouquet and line id lists included), repeated ids, duplicate
   usernames/MACs and streams without a server; fixes them in one transaction after
@@ -78,9 +82,9 @@ publishes one format per audience, all listed in `SHA256SUMS.txt`:
 ```bash
 # Linux server, e.g. the XUI host itself
 curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/latest/download/SHA256SUMS.txt
-curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.5.0/xui-db-tool-0.5.0-linux-x86_64
+curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.6.0/xui-db-tool-0.6.0-linux-x86_64
 sha256sum --check --ignore-missing SHA256SUMS.txt
-chmod +x xui-db-tool-0.5.0-linux-x86_64 && ./xui-db-tool-0.5.0-linux-x86_64 --help
+chmod +x xui-db-tool-0.6.0-linux-x86_64 && ./xui-db-tool-0.6.0-linux-x86_64 --help
 ```
 
 All three update themselves: *Ajuda → Procurar actualizações* in the app, or
@@ -131,6 +135,12 @@ python -m xdbtool check --host 127.0.0.1 --user root --password secret     --dat
 # Browse rows: search, sort, page (passwords masked unless --show-secrets)
 python -m xdbtool view streams --dump backup.sql --search sport \
     --columns id,stream_display_name,category_id --order id --limit 50
+
+# Edit rows on a live server (undo script in ./backups); --dry-run only prints the SQL
+python -m xdbtool edit streams --host 127.0.0.1 --user root --password secret \
+    --database xui --key id=300 --set stream_display_name="SPORT TV 1 HD"
+python -m xdbtool edit streams --host 127.0.0.1 --user root --password secret \
+    --database xui --import new_channels.csv
 
 # Renumber stream ids to 1..N (preview, then SQL + file-rename scripts, or apply live)
 python -m xdbtool renumber --dump backup.sql --sql-out renumber.sql --files-script files.sh

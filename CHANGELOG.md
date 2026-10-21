@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-21
+### Added
+- **Edit data** — *Modo de edição* in the data viewer (live MySQL, tables with a
+  primary key): change cells, *Adicionar linha*, *Duplicar* (copy rows as new ones),
+  *Apagar / repor*, *Pôr NULL* and *Importar CSV/JSON…* (header-line CSV with comma,
+  semicolon or tab; JSON list of objects; columns matched by name). Edited cells are
+  yellow, new rows green, deleted rows red until *Guardar alterações…*, which shows
+  the SQL first and saves everything in one transaction.
+- An undo script with the exact previous values (`edit-TABLE-DATE.undo.sql`) is
+  written to the export folder after every save.
+- CLI `edit <table>`: `--key COL=VAL` with `--set`/`--null` or `--delete`, `--insert`,
+  `--import FILE`, `--dry-run`, `--backup-dir`.
+- User guide: *Ver e editar dados* section rewritten with the editing steps.
+
+### Safety
+- Every changed or deleted row is locked and re-checked against the values that were
+  loaded; if the panel changed it meanwhile, nothing is saved.
+- Primary keys are not editable; numbers, NOT NULL and JSON lists (bouquet channels,
+  categories) are validated as you type; replacing a password hash with plain text
+  asks first (CLI: `--force`).
+- Unsaved changes are never lost silently: changing page, closing the window or
+  connecting to another source asks first.
+
 ## [0.5.0] - 2026-10-21
 ### Added
 - **Data viewer** — double-click a table (or *Ver dados…*) to browse its rows in a

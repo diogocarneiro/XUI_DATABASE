@@ -400,7 +400,8 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, _("View data"),
                                     _("Connect a source and select a table first."))
             return
-        viewer = DataViewer(self, self.source, item.text(), self._run_for_viewer)
+        viewer = DataViewer(self, self.source, item.text(), self._run_for_viewer,
+                            backup_dir=lambda: Path(self.export_dir.text()))
         self.viewers.append(viewer)
         viewer.destroyed.connect(lambda _o=None, w=viewer: self.viewers.remove(w)
                                  if w in self.viewers else None)
@@ -411,10 +412,13 @@ class MainWindow(QMainWindow):
         return self.runner.start(lambda _progress, _message: job(),
                                  on_finished=on_done, on_failed=on_error)
 
-    def _close_viewers(self) -> None:
+    def _close_viewers(self) -> bool:
+        """Close every viewer; False when one keeps unsaved changes (the user cancelled)."""
         for viewer in list(self.viewers):
-            viewer.close()
+            if not viewer.close():
+                return False
         self.viewers.clear()
+        return True
 
     def _build_actions_box(self) -> QWidget:
         tabs = QTabWidget()
@@ -1566,7 +1570,8 @@ class MainWindow(QMainWindow):
             self.export_dir.setText(path)
 
     def _connect_source(self) -> None:
-        self._close_viewers()  # they browse the source that is about to close
+        if not self._close_viewers():  # they browse the source that is about to close
+            return
         if self.source is not None:
             try:
                 self.source.close()
@@ -1716,6 +1721,9 @@ class MainWindow(QMainWindow):
         AboutDialog(self).exec()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if not self._close_viewers():  # a viewer still has unsaved edits
+            event.ignore()
+            return
         if self.runner.busy:
             self.runner.wait(5000)  # let a running job stop cleanly before teardown
         if self.source is not None:

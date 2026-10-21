@@ -3,7 +3,7 @@
 ZapX, Xtream Codes v2) working on databases they <b>own or are authorised to manage</b>.</p>
 <p><b>Contents:</b>
 <a href="#start">Getting started</a> · <a href="#source">Data source</a> ·
-<a href="#ssh">SSH connections</a> · <a href="#viewer">View data</a> · <a href="#export">Export</a> ·
+<a href="#ssh">SSH connections</a> · <a href="#viewer">View and edit data</a> · <a href="#export">Export</a> ·
 <a href="#maintenance">Maintenance</a> · <a href="#integrity">Integrity</a> · <a href="#renumber">Renumber IDs</a> · <a href="#templates">Templates</a> ·
 <a href="#migrate">Migrate / Restore</a> · <a href="#xui-migrate">Migrating to XUI</a> ·
 <a href="#xui-import">Importing an XUI backup</a> · <a href="#safety">Safety</a> ·
@@ -44,7 +44,7 @@ in <code>/home/xui/config/config.ini</code>.</li>
 </ul>
 <p>The Templates and Migrate / Restore tabs offer the same choice.</p>
 
-<h2><a name="viewer"></a>View data</h2>
+<h2><a name="viewer"></a>View and edit data</h2>
 <p>Double-click a table in the <b>Tables</b> list (or select it and click <b>View data…</b>) to
 open its rows in a separate window; several tables can be open at once. It works on live
 databases and dumps — on a live connection searching, sorting and paging run on the server,
@@ -60,8 +60,35 @@ such as bouquet channels laid out readably.</li>
 <li>Passwords, hashes, tokens and keys show as ••••••; tick <b>Show passwords/keys</b> to see
 them.</li>
 </ul>
-<p>The window is read-only. Command line: <code>view streams --dump file.sql --search sport
+<p>Command line: <code>view streams --dump file.sql --search sport
 --columns id,stream_display_name --order id</code> (<code>--json</code> for JSON).</p>
+<h3>Editing (live connection)</h3>
+<p>Tick <b>Edit mode</b> to change the table on the server. It is available on a live
+connection for tables with a primary key (the key itself cannot be edited — use
+<a href="#renumber">Renumber IDs</a> for stream ids).</p>
+<ul>
+<li>Double-click a cell (or start typing) to change it; edited cells turn yellow.</li>
+<li><b>Add row</b> appends an empty row (green): fill in the cells you need, the others get
+the table's default — <i>(auto)</i> marks the id the server assigns. <b>Duplicate</b> copies the
+selected rows as new ones, handy to create a channel like an existing one.</li>
+<li><b>Delete / restore</b> marks the selected rows for deletion (red, struck through); click
+again to keep them. <b>Set NULL</b> empties the selected cells.</li>
+<li><b>Import CSV/JSON…</b> adds the rows of a file as new rows: a CSV with a header line
+(comma, semicolon or tab separated — Excel files saved as CSV work) or a JSON list of objects.
+Columns are matched by name; unknown ones are listed and ignored; empty CSV cells get the
+default.</li>
+<li>Nothing is written until <b>Save changes…</b>: it shows what will change and the SQL, then
+saves everything in one transaction. If the panel changed one of those rows meanwhile, nothing
+is saved. An undo script (<code>edit-TABLE-DATE.undo.sql</code>) with the previous values is
+written to the export folder — run it with <code>mysql</code> or <b>Migrate / Restore</b> to
+go back.</li>
+</ul>
+<p>Values are checked as you type: whole numbers for numeric columns, valid JSON where the cell
+held a JSON list (bouquet channels, categories…), and a warning before plain text replaces a
+password hash (it would not work as a password). Moving to another page asks to discard
+unsaved changes. Command line: <code>edit streams --host … --key id=300 --set
+stream_display_name="SPORT HD"</code>, <code>--delete</code>, <code>--insert --set …</code>,
+<code>--import rows.csv</code>, and <code>--dry-run</code> to only see the SQL.</p>
 
 <h2><a name="export"></a>Export / Backup</h2>
 <p>Exports the ticked tables as <b>JSON</b>, <b>CSV</b> or <b>SQL</b> (with

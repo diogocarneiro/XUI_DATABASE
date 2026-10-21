@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format is based on
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added
+- **Integrity check** — new *Integridade* tab and `check` command. Finds rows that
+  point to ids that no longer exist (streams of a deleted category, bouquets listing
+  deleted streams, lines with deleted bouquets, devices of deleted lines, episodes of
+  a deleted series, streams on a deleted server…), the same id repeated in a bouquet
+  or line list, invalid id lists, duplicate usernames/MACs/access codes, streams
+  assigned to no server and episodes linked to no series — for XUI.one and for
+  Xtream-UI / StreamCreed.
+- Fixes: delete the orphan rows, clear the reference, or remove the missing/repeated
+  ids from the list. *Save fix script…* (`--fix-sql`) writes them as one transaction;
+  *Apply selected fixes* (`--fix`, live MySQL) first backs up the affected tables as
+  SQL, then applies everything in one transaction and checks again. A problem whose
+  referenced table is empty (partial dump) is reported but never fixed automatically.
 
 ## [0.2.1] - 2026-10-19
 ### Added

@@ -22,7 +22,7 @@ LICENSE = "MIT"
 HELP_DIR = Path(__file__).with_name("help")
 # Sections every guide must have, in this order (anchors in help/<lang>.html).
 HELP_SECTIONS = (
-    "start", "source", "ssh", "export", "maintenance", "templates", "migrate",
+    "start", "source", "ssh", "export", "maintenance", "integrity", "templates", "migrate",
     "xui-migrate", "xui-import", "safety", "preferences", "updates", "problems",
     "developer",
 )

@@ -5,7 +5,7 @@ gestire</b>.</p>
 <p><b>Indice:</b>
 <a href="#start">Per iniziare</a> · <a href="#source">Origine dei dati</a> ·
 <a href="#ssh">Connessione SSH</a> · <a href="#export">Esporta</a> ·
-<a href="#maintenance">Manutenzione</a> · <a href="#templates">Modelli</a> ·
+<a href="#maintenance">Manutenzione</a> · <a href="#integrity">Integrità</a> · <a href="#templates">Modelli</a> ·
 <a href="#migrate">Migra / Ripristina</a> · <a href="#xui-migrate">Migrazione a XUI</a> ·
 <a href="#xui-import">Importare un backup XUI</a> · <a href="#safety">Sicurezza</a> ·
 <a href="#preferences">Tema e lingua</a> · <a href="#updates">Aggiornamenti</a> ·
@@ -55,6 +55,38 @@ prima di riparare, migrare o importare.</p>
 <p>Esegue <b>Verifica</b>, <b>Ripara</b>, <b>Analizza</b> o <b>Ottimizza</b> sulle tabelle
 selezionate (solo con connessione live). <b>Verifica e ripara automaticamente</b> le controlla
 tutte e ripara solo quelle danneggiate.</p>
+
+<h2><a name="integrity"></a>Integrità</h2>
+<p>I pannelli non dichiarano collegamenti tra le tabelle, quindi eliminare una categoria, un
+bouquet, un server o una linea nel pannello (o a mano) può lasciare righe che puntano a
+qualcosa che non esiste più. <b>Verifica integrità</b> legge tutto il database (live o dump) ed
+elenca:</p>
+<ul>
+<li>righe che puntano a id inesistenti — stream di una categoria eliminata, bouquet con stream
+eliminati, linee con bouquet eliminati, dispositivi MAG/Enigma2 di linee eliminate, episodi di
+una serie eliminata, stream su un server eliminato…;</li>
+<li>lo stesso id ripetuto nella lista di un bouquet o di una linea, e liste che non sono JSON
+valido;</li>
+<li>nomi utente, MAC e codici di accesso usati da più righe;</li>
+<li>stream non assegnati ad alcun server (non possono essere riprodotti) ed episodi senza
+serie.</li>
+</ul>
+<p>Ogni problema mostra la sua correzione: <i>elimina queste righe</i>, <i>azzera il
+riferimento</i>, <i>rimuovi dalla lista gli id mancanti</i> o <i>rimuovi gli id ripetuti</i>.
+Gli altri sono <i>solo segnalazione</i>: rivedili a mano. Togli la spunta a ciò che non vuoi
+correggere, poi:</p>
+<ul>
+<li><b>Salva script di correzione…</b> — scrive l'SQL (una transazione) da eseguire sul server;
+è l'unica opzione per un file dump;</li>
+<li><b>Applica le correzioni selezionate</b> — connessione live: fa un backup SQL delle tabelle
+interessate nella cartella di esportazione (<code>integrity-DATA</code>), applica tutto in
+un'unica transazione e ripete la verifica. Ripeti finché non resta nulla da correggere:
+eliminare un dispositivo, ad esempio, può far emergere i suoi vecchi eventi.</li>
+</ul>
+<p>Se la tabella di riferimento è vuota (ad esempio un dump parziale senza
+<code>servers</code>) il problema viene segnalato ma mai corretto automaticamente. Riga di
+comando: <code>check --dump file.sql --fix-sql fix.sql</code>, oppure
+<code>check --host … --fix</code>.</p>
 
 <h2><a name="templates"></a>Modelli / Nuovo DB</h2>
 <p>Un modello è lo schema di un'installazione pulita di un pannello. <b>Registra .sql di

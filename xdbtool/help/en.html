@@ -4,7 +4,7 @@ ZapX, Xtream Codes v2) working on databases they <b>own or are authorised to man
 <p><b>Contents:</b>
 <a href="#start">Getting started</a> · <a href="#source">Data source</a> ·
 <a href="#ssh">SSH connections</a> · <a href="#export">Export</a> ·
-<a href="#maintenance">Maintenance</a> · <a href="#templates">Templates</a> ·
+<a href="#maintenance">Maintenance</a> · <a href="#integrity">Integrity</a> · <a href="#templates">Templates</a> ·
 <a href="#migrate">Migrate / Restore</a> · <a href="#xui-migrate">Migrating to XUI</a> ·
 <a href="#xui-import">Importing an XUI backup</a> · <a href="#safety">Safety</a> ·
 <a href="#preferences">Theme and language</a> · <a href="#updates">Updates</a> ·
@@ -54,6 +54,34 @@ before repairing, migrating or importing.</p>
 <p>Runs <b>Check</b>, <b>Repair</b>, <b>Analyze</b> or <b>Optimize</b> on the ticked tables
 (live connection only). <b>Check &amp; auto-repair broken tables</b> checks them all and
 repairs only the damaged ones.</p>
+
+<h2><a name="integrity"></a>Integrity</h2>
+<p>The panels declare no links between their tables, so deleting a category, bouquet, server
+or line in the panel (or by hand) can leave rows pointing at something that no longer exists.
+<b>Check integrity</b> reads the whole database (live or dump) and lists:</p>
+<ul>
+<li>rows that point to missing ids — streams of a deleted category, bouquets listing deleted
+streams, lines with deleted bouquets, MAG/Enigma2 devices of deleted lines, episodes of a
+deleted series, streams on a deleted server…;</li>
+<li>the same id repeated inside a bouquet or line list, and lists that are not valid JSON;</li>
+<li>usernames, MACs and access codes used by more than one row;</li>
+<li>streams assigned to no server (they cannot play) and episodes linked to no series.</li>
+</ul>
+<p>Each problem shows its fix: <i>delete these rows</i> (a row that only makes sense with what
+was deleted), <i>clear the reference</i>, <i>remove the missing ids from the list</i> or
+<i>remove the repeated ids</i>. The others are <i>report only</i>: review them by hand. Untick
+what you do not want to fix, then:</p>
+<ul>
+<li><b>Save fix script…</b> — writes the SQL (one transaction) to run on the server; the only
+option for a dump file;</li>
+<li><b>Apply selected fixes</b> — live connection: backs up the affected tables as SQL in the
+export folder (<code>integrity-DATE</code>), applies everything in one transaction and runs the
+check again. Run it again until nothing fixable is left: deleting a device, for example, can
+uncover its old events.</li>
+</ul>
+<p>When the referenced table is empty (for example a partial dump without <code>servers</code>)
+the problem is reported but never fixed automatically. Command line:
+<code>check --dump file.sql --fix-sql fix.sql</code>, or <code>check --host … --fix</code>.</p>
 
 <h2><a name="templates"></a>Templates / New DB</h2>
 <p>A template is the schema of a clean panel installation. <b>Register base .sql</b> stores

@@ -109,7 +109,8 @@ def _parse_columns(create_stmt: str) -> list[ColumnInfo]:
             continue
         m = _COL_RE.match(line)
         if m:
-            cols.append(ColumnInfo(name=m.group(1), data_type=m.group(2).lower()))
+            cols.append(ColumnInfo(name=m.group(1), data_type=m.group(2).lower(),
+                                   nullable="NOT NULL" not in line.upper()))
     return cols
 
 

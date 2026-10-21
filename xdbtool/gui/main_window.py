@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__
 from .. import about as about_info
-from ..core import profiles, templates, updater, xui_import, xui_migrate
+from ..core import integrity, profiles, templates, updater, xui_import, xui_migrate
 from ..core.config import (
     ConnectionProfile,
     load_settings,
@@ -73,6 +73,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("XUI DB Tool")
         self.resize(1040, 720)
         self.source: DataSource | None = None
+        self.integrity_report: integrity.IntegrityReport | None = None
         self.runner = JobRunner(self)
         self.update_runner = JobRunner(self)  # update checks never block real work
         self._build_ui()
@@ -381,6 +382,7 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
         tabs.addTab(self._build_export_tab(), _("Export / Backup"))
         tabs.addTab(self._build_maint_tab(), _("Maintenance"))
+        tabs.addTab(self._build_integrity_tab(), _("Integrity"))
         tabs.addTab(self._build_templates_tab(), _("Templates / New DB"))
         tabs.addTab(self._build_migrate_tab(), _("Migrate / Restore"))
         tabs.addTab(self._build_xui_migrate_tab(), _("XUI Migration"))
@@ -429,6 +431,146 @@ class MainWindow(QMainWindow):
         form.addRow(auto_btn)
         form.addRow(note)
         return w
+
+    def _build_integrity_tab(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        intro = QLabel(_("Finds rows that point to deleted streams, categories, bouquets, "
+                         "servers or lines, repeated ids in bouquets, duplicate usernames/MACs "
+                         "and streams without a server. Works on live databases and dumps."))
+        intro.setWordWrap(True)
+        check_btn = self._role(QPushButton(_("Check integrity")), "primary")
+        check_btn.clicked.connect(self._do_integrity_check)
+        self.integrity_summary = QLabel()
+        self.integrity_summary.setWordWrap(True)
+        self.integrity_table = QTableWidget(0, 3)
+        self.integrity_table.setHorizontalHeaderLabels([_("Problem"), _("Fix"), _("Examples")])
+        self.integrity_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.integrity_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeToContents)
+        self.integrity_table.verticalHeader().setVisible(False)
+        self.integrity_table.setAlternatingRowColors(True)
+        self.integrity_table.setShowGrid(False)
+        self.integrity_table.setWordWrap(False)
+        self.integrity_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        save_btn = QPushButton(_("Save fix script…"))
+        save_btn.clicked.connect(self._save_integrity_script)
+        apply_btn = self._role(QPushButton(_("Apply selected fixes")), "danger")
+        apply_btn.clicked.connect(self._apply_integrity_fixes)
+        buttons = QHBoxLayout()
+        buttons.addWidget(save_btn)
+        buttons.addWidget(apply_btn)
+        buttons.addStretch(1)
+        note = QLabel(_("Ticked problems are fixed. Applying needs a live MySQL connection: the "
+                        "affected tables are first backed up as SQL to the export folder, then "
+                        "everything runs in one transaction and the check runs again."))
+        note.setWordWrap(True)
+        v.addWidget(intro)
+        v.addWidget(check_btn, 0, Qt.AlignLeft)
+        v.addWidget(self.integrity_summary)
+        v.addWidget(self.integrity_table, 1)
+        v.addLayout(buttons)
+        v.addWidget(note)
+        return w
+
+    def _show_integrity(self, report: integrity.IntegrityReport | None) -> None:
+        self.integrity_report = report
+        issues = report.issues if report else []
+        self.integrity_table.setRowCount(len(issues))
+        for r, issue in enumerate(issues):
+            item = QTableWidgetItem(issue.describe())
+            item.setToolTip(issue.describe())
+            if issue.fixable:
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked)
+            self.integrity_table.setItem(r, 0, item)
+            self.integrity_table.setItem(r, 1, QTableWidgetItem(issue.fix_label()))
+            sample = QTableWidgetItem(issue.sample_text())
+            sample.setToolTip(issue.sample_text())
+            self.integrity_table.setItem(r, 2, sample)
+        if report is None:
+            self.integrity_summary.clear()
+        elif not issues:
+            self.integrity_summary.setText(_("No problems found ({count} rules checked).",
+                                             count=len(report.checked)))
+        else:
+            self.integrity_summary.setText(_(
+                "{count} problem(s), {fixable} fixable automatically ({rules} rules checked).",
+                count=len(issues), fixable=len(report.fixable), rules=len(report.checked)))
+
+    def _chosen_integrity_issues(self) -> list:
+        if self.integrity_report is None:
+            return []
+        out = []
+        for r, issue in enumerate(self.integrity_report.issues):
+            item = self.integrity_table.item(r, 0)
+            if issue.fixable and item and item.checkState() == Qt.Checked:
+                out.append(issue)
+        return out
+
+    def _show_integrity_result(self, report: integrity.IntegrityReport) -> None:
+        self.progress.setValue(100)
+        for line in report.summary_lines():
+            self._log(line)
+        self._show_integrity(report)
+
+    def _do_integrity_check(self) -> None:
+        if self._busy_guard():
+            return
+        src = self.source
+
+        def job(progress, message):
+            message(_("Checking integrity of {label}…", label=src.label))
+            return integrity.check_integrity(src, progress)
+
+        self._start_custom(job, self._show_integrity_result)
+
+    def _save_integrity_script(self) -> None:
+        issues = self._chosen_integrity_issues()
+        if not issues:
+            QMessageBox.information(self, _("Nothing to fix"),
+                                    _("Run the check and tick at least one fixable problem."))
+            return
+        path, _sel = QFileDialog.getSaveFileName(self, _("Save fix script"), "integrity_fix.sql",
+                                                 SQL_FILTER)
+        if not path:
+            return
+        stmts = integrity.fix_statements(self.integrity_report, issues)
+        integrity.write_fix_script(stmts, path, self.source.label if self.source else "")
+        self._log(_("Fix script saved: {path} ({count} statements)", path=path,
+                    count=len(stmts)))
+
+    def _apply_integrity_fixes(self) -> None:
+        if self._busy_guard():
+            return
+        issues = self._chosen_integrity_issues()
+        if not issues:
+            QMessageBox.information(self, _("Nothing to fix"),
+                                    _("Run the check and tick at least one fixable problem."))
+            return
+        if not isinstance(self.source, MySQLSource):
+            QMessageBox.information(self, _("Live connection needed"), _(
+                "A dump file cannot be changed in place. Use “Save fix script…” and run it "
+                "on the server, or connect to the live database."))
+            return
+        tables = sorted({i.table for i in issues})
+        if QMessageBox.question(self, _("Apply fixes"), _(
+                "Apply {count} fix(es) to {label}?\n\nTables changed: {tables}\nThey are "
+                "backed up first to {folder}.", count=len(issues), label=self.source.label,
+                tables=", ".join(tables), folder=self.export_dir.text())) != QMessageBox.Yes:
+            return
+        src, report, folder = self.source, self.integrity_report, Path(self.export_dir.text())
+
+        def job(progress, message):
+            result = integrity.apply_fixes(src, report, issues, backup_dir=folder,
+                                           progress=progress, message=message)
+            message(_("Backup: {folder}", folder=result["backup"]))
+            message(_("Applied {count} statement(s), {rows} row(s) changed.",
+                      count=result["statements"], rows=result["changed"]))
+            message(_("Checking integrity of {label}…", label=src.label))
+            return integrity.check_integrity(src, progress)
+
+        self._start_custom(job, self._show_integrity_result)
 
     def _build_templates_tab(self) -> QWidget:
         w = QWidget()
@@ -1267,6 +1409,7 @@ class MainWindow(QMainWindow):
             self._set_status(_("Not connected."), "error")
             return
         self.source = src
+        self._show_integrity(None)
         self._log(_("Connected: {label}", label=src.label))
         self._populate_tables()
 

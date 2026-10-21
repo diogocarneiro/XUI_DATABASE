@@ -89,6 +89,12 @@ class DataSource(abc.ABC):
     def iter_rows(self, table: str, batch_size: int = 1000) -> Iterator[dict]:
         """Yield rows of ``table`` as ``{column: value}`` dicts, streaming."""
 
+    def iter_columns(self, table: str, columns: Sequence[str],
+                     batch_size: int = 1000) -> Iterator[tuple]:
+        """Yield only ``columns`` of each row, as tuples (sources may read less)."""
+        for row in self.iter_rows(table, batch_size):
+            yield tuple(row.get(c) for c in columns)
+
     # -- optional server info ---------------------------------------------
     def server_info(self) -> dict[str, str]:
         """Return a small dict of server/source facts for display."""

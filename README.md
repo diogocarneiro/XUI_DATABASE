@@ -29,6 +29,10 @@ MySQL/MariaDB connection or from an offline `mysqldump` `.sql` file.
   `SHOW CREATE TABLE` DDL). Optional redaction of password/secret-like columns.
 - **Repair / maintenance** — `CHECK`, `REPAIR`, `ANALYZE`, `OPTIMIZE`, plus a
   one-click *check-then-repair-only-broken* flow (live MySQL only).
+- **Integrity check** — finds rows pointing at deleted streams, categories, bouquets,
+  servers or lines (bouquet and line id lists included), repeated ids, duplicate
+  usernames/MACs and streams without a server; fixes them in one transaction after
+  backing up the affected tables, or writes the fix as a `.sql` script (dumps too).
 - **Migration** — column-level mapping between a source and a target database;
   transfers only columns present on both sides, so target auto-increment/defaults
   are preserved. Can execute live or emit a `.sql` script (dry run).
@@ -110,6 +114,10 @@ python -m xdbtool export --host 127.0.0.1 --user root --password secret \
 # Check and auto-repair broken tables (live only)
 python -m xdbtool maint --host 127.0.0.1 --user root --password secret \
     --database xtream_iptv --operation auto
+
+# Integrity check: list broken links; write the fix as SQL, or (live) back up and apply it
+python -m xdbtool check --dump backup.sql --fix-sql fix.sql
+python -m xdbtool check --host 127.0.0.1 --user root --password secret     --database xui --fix --backup-dir ./backups
 
 # Migrate from an old dump into a fresh panel DB (dry run → SQL file)
 python -m xdbtool migrate --dump old_panel.sql \

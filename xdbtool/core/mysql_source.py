@@ -253,6 +253,39 @@ class MySQLSource(DataSource):
         finally:
             cur.close()
 
+    def iter_columns(self, table: str, columns, batch_size: int = 1000) -> Iterator[tuple]:
+        if self._conn is None:
+            raise SourceError("Not connected.")
+        cur = self._conn.cursor(pymysql.cursors.SSCursor)
+        try:
+            cur.execute(f"SELECT {', '.join(_quote_ident(c) for c in columns)} "
+                        f"FROM {_quote_ident(table)}")
+            while True:
+                rows = cur.fetchmany(batch_size)
+                if not rows:
+                    break
+                yield from rows
+        finally:
+            cur.close()
+
+    def run_transaction(self, statements, progress=None) -> int:
+        """Run ``statements`` in one transaction (rolled back on error); returns rows changed."""
+        stmts = [s for s in statements if s.strip()]
+        changed = 0
+        with self._cursor() as cur:
+            cur.execute("START TRANSACTION")
+            try:
+                for done, stmt in enumerate(stmts, 1):
+                    changed += cur.execute(stmt) or 0
+                    if progress and (done % 20 == 0 or done == len(stmts)):
+                        progress("executing", done, len(stmts))
+            except Exception as exc:  # noqa: BLE001 - normalise to SourceError
+                cur.execute("ROLLBACK")
+                raise SourceError(_("Statement failed, nothing was changed: {error}",
+                                    error=exc) + f"\n--- SQL ---\n{stmt[:300]}") from exc
+            cur.execute("COMMIT")
+        return changed
+
     # -- maintenance -------------------------------------------------------
     def check_table(self, table: str) -> list[dict]:
         with self._cursor() as cur:

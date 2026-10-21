@@ -5,7 +5,7 @@ ou qu'ils sont autorisés à gérer</b>.</p>
 <p><b>Sommaire :</b>
 <a href="#start">Démarrer</a> · <a href="#source">Source des données</a> ·
 <a href="#ssh">Connexion SSH</a> · <a href="#export">Export</a> ·
-<a href="#maintenance">Maintenance</a> · <a href="#templates">Modèles</a> ·
+<a href="#maintenance">Maintenance</a> · <a href="#integrity">Intégrité</a> · <a href="#templates">Modèles</a> ·
 <a href="#migrate">Migrer / Restaurer</a> · <a href="#xui-migrate">Migration vers XUI</a> ·
 <a href="#xui-import">Importer une sauvegarde XUI</a> · <a href="#safety">Sécurité</a> ·
 <a href="#preferences">Thème et langue</a> · <a href="#updates">Mises à jour</a> ·
@@ -58,6 +58,37 @@ sauvegarde SQL avant de réparer, migrer ou importer.</p>
 <p>Exécute <b>Vérifier</b>, <b>Réparer</b>, <b>Analyser</b> ou <b>Optimiser</b> sur les tables
 cochées (connexion en direct uniquement). <b>Vérifier et réparer automatiquement</b> vérifie
 toutes les tables et ne répare que celles qui sont endommagées.</p>
+
+<h2><a name="integrity"></a>Intégrité</h2>
+<p>Les panels ne déclarent aucun lien entre leurs tables : supprimer une catégorie, un bouquet,
+un serveur ou une ligne dans le panel (ou à la main) peut laisser des lignes pointant vers
+quelque chose qui n'existe plus. <b>Vérifier l'intégrité</b> lit toute la base (en direct ou
+dump) et liste :</p>
+<ul>
+<li>les lignes qui pointent vers des ids inexistants — streams d'une catégorie supprimée,
+bouquets listant des streams supprimés, lignes avec des bouquets supprimés, appareils
+MAG/Enigma2 de lignes supprimées, épisodes d'une série supprimée, streams sur un serveur
+supprimé… ;</li>
+<li>le même id répété dans la liste d'un bouquet ou d'une ligne, et les listes qui ne sont pas
+du JSON valide ;</li>
+<li>les noms d'utilisateur, MAC et codes d'accès utilisés par plusieurs lignes ;</li>
+<li>les streams sans serveur (ils ne peuvent pas être lus) et les épisodes sans série.</li>
+</ul>
+<p>Chaque problème indique sa correction : <i>supprimer ces lignes</i>, <i>effacer la
+référence</i>, <i>retirer de la liste les ids manquants</i> ou <i>retirer les ids répétés</i>.
+Les autres sont <i>signalés seulement</i> : vérifiez-les à la main. Décochez ce que vous ne
+voulez pas corriger, puis :</p>
+<ul>
+<li><b>Enregistrer le script de correction…</b> — écrit le SQL (une transaction) à exécuter
+sur le serveur ; seule option pour un fichier dump ;</li>
+<li><b>Appliquer les corrections cochées</b> — connexion en direct : sauvegarde les tables
+concernées en SQL dans le dossier d'export (<code>integrity-DATE</code>), applique tout dans une
+transaction et relance la vérification. Relancez jusqu'à ce qu'il ne reste rien de
+corrigeable : supprimer un appareil, par exemple, peut révéler ses anciens événements.</li>
+</ul>
+<p>Si la table référencée est vide (par exemple un dump partiel sans <code>servers</code>), le
+problème est signalé mais jamais corrigé automatiquement. Ligne de commande :
+<code>check --dump fichier.sql --fix-sql fix.sql</code>, ou <code>check --host … --fix</code>.</p>
 
 <h2><a name="templates"></a>Modèles / Nouvelle BD</h2>
 <p>Un modèle est le schéma d'une installation propre d'un panneau. <b>Enregistrer un .sql de

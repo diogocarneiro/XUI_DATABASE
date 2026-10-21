@@ -5,7 +5,7 @@ gestionar</b>.</p>
 <p><b>Índice:</b>
 <a href="#start">Empezar</a> · <a href="#source">Origen de los datos</a> ·
 <a href="#ssh">Conexión SSH</a> · <a href="#export">Exportar</a> ·
-<a href="#maintenance">Mantenimiento</a> · <a href="#templates">Plantillas</a> ·
+<a href="#maintenance">Mantenimiento</a> · <a href="#integrity">Integridad</a> · <a href="#templates">Plantillas</a> ·
 <a href="#migrate">Migrar / Restaurar</a> · <a href="#xui-migrate">Migración a XUI</a> ·
 <a href="#xui-import">Importar copia XUI</a> · <a href="#safety">Seguridad</a> ·
 <a href="#preferences">Tema e idioma</a> · <a href="#updates">Actualizaciones</a> ·
@@ -56,6 +56,35 @@ una copia SQL antes de reparar, migrar o importar.</p>
 <p>Ejecuta <b>Comprobar</b>, <b>Reparar</b>, <b>Analizar</b> u <b>Optimizar</b> en las tablas
 marcadas (solo con conexión en vivo). <b>Comprobar y reparar automáticamente</b> las comprueba
 todas y repara solo las dañadas.</p>
+
+<h2><a name="integrity"></a>Integridad</h2>
+<p>Los paneles no declaran vínculos entre sus tablas, así que borrar una categoría, bouquet,
+servidor o línea en el panel (o a mano) puede dejar filas que apuntan a algo que ya no existe.
+<b>Verificar integridad</b> lee toda la base de datos (en vivo o dump) y muestra:</p>
+<ul>
+<li>filas que apuntan a ids inexistentes — streams de una categoría borrada, bouquets con
+streams borrados, líneas con bouquets borrados, dispositivos MAG/Enigma2 de líneas borradas,
+episodios de una serie borrada, streams en un servidor borrado…;</li>
+<li>el mismo id repetido dentro de la lista de un bouquet o línea, y listas que no son JSON
+válido;</li>
+<li>usuarios, MAC y códigos de acceso usados por más de una fila;</li>
+<li>streams sin ningún servidor asignado (no se pueden reproducir) y episodios sin serie.</li>
+</ul>
+<p>Cada problema muestra su corrección: <i>eliminar estas filas</i>, <i>borrar la
+referencia</i>, <i>quitar de la lista los ids inexistentes</i> o <i>quitar los ids
+repetidos</i>. Los demás son <i>solo informe</i>: revísalos a mano. Desmarca lo que no quieras
+corregir y luego:</p>
+<ul>
+<li><b>Guardar script de corrección…</b> — escribe el SQL (una transacción) para ejecutarlo en
+el servidor; es la única opción para un archivo dump;</li>
+<li><b>Aplicar correcciones seleccionadas</b> — conexión en vivo: hace una copia SQL de las
+tablas afectadas en la carpeta de exportación (<code>integrity-FECHA</code>), aplica todo en una
+transacción y repite la verificación. Repite hasta que no quede nada corregible: borrar un
+dispositivo, por ejemplo, puede revelar sus eventos antiguos.</li>
+</ul>
+<p>Si la tabla referida está vacía (por ejemplo, un dump parcial sin <code>servers</code>) el
+problema se informa pero nunca se corrige automáticamente. Línea de comandos:
+<code>check --dump archivo.sql --fix-sql fix.sql</code>, o <code>check --host … --fix</code>.</p>
 
 <h2><a name="templates"></a>Plantillas / Nueva BD</h2>
 <p>Una plantilla es el esquema de una instalación limpia de un panel. <b>Registrar .sql

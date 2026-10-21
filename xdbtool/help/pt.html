@@ -4,7 +4,7 @@ ZapX, Xtream Codes v2) que gerem bases de dados <b>suas ou que estão autorizado
 <p><b>Índice:</b>
 <a href="#start">Começar</a> · <a href="#source">Origem dos dados</a> ·
 <a href="#ssh">Ligação por SSH</a> · <a href="#export">Exportar</a> ·
-<a href="#maintenance">Manutenção</a> · <a href="#templates">Templates</a> ·
+<a href="#maintenance">Manutenção</a> · <a href="#integrity">Integridade</a> · <a href="#templates">Templates</a> ·
 <a href="#migrate">Migrar / Restaurar</a> · <a href="#xui-migrate">Migração para XUI</a> ·
 <a href="#xui-import">Importar backup XUI</a> · <a href="#safety">Segurança</a> ·
 <a href="#preferences">Tema e idioma</a> · <a href="#updates">Actualizações</a> ·
@@ -55,6 +55,35 @@ Faz sempre um backup SQL antes de reparar, migrar ou importar.</p>
 <p>Corre <b>Verificar</b>, <b>Reparar</b>, <b>Analisar</b> ou <b>Optimizar</b> nas tabelas
 marcadas (só com ligação em directo). <b>Verificar e reparar automaticamente</b> verifica
 todas e repara apenas as que estão danificadas.</p>
+
+<h2><a name="integrity"></a>Integridade</h2>
+<p>Os painéis não declaram ligações entre as tabelas, por isso apagar uma categoria, bouquet,
+servidor ou linha no painel (ou à mão) pode deixar registos a apontar para algo que já não
+existe. <b>Verificar integridade</b> lê a base de dados inteira (em directo ou dump) e lista:</p>
+<ul>
+<li>registos que apontam para IDs inexistentes — streams de uma categoria apagada, bouquets com
+streams apagados, linhas com bouquets apagados, dispositivos MAG/Enigma2 de linhas apagadas,
+episódios de uma série apagada, streams num servidor apagado…;</li>
+<li>o mesmo ID repetido dentro da lista de um bouquet ou linha, e listas que não são JSON
+válido;</li>
+<li>nomes de utilizador, MACs e códigos de acesso usados por mais de um registo;</li>
+<li>streams sem nenhum servidor atribuído (não podem ser reproduzidos) e episódios sem série.</li>
+</ul>
+<p>Cada problema mostra a sua correcção: <i>apagar estas linhas</i> (registos que só fazem
+sentido com o que foi apagado), <i>limpar a referência</i>, <i>retirar da lista os IDs
+inexistentes</i> ou <i>retirar os IDs repetidos</i>. Os restantes são <i>só relatório</i>:
+revê-os à mão. Desmarca o que não queres corrigir e depois:</p>
+<ul>
+<li><b>Guardar script de correcção…</b> — grava o SQL (uma transacção) para correr no servidor;
+é a única opção para um ficheiro dump;</li>
+<li><b>Aplicar correcções seleccionadas</b> — ligação em directo: faz backup SQL das tabelas
+afectadas na pasta de exportação (<code>integrity-DATA</code>), aplica tudo numa transacção e
+repete a verificação. Repete até não sobrar nada corrigível: apagar um dispositivo, por
+exemplo, pode revelar os seus eventos antigos.</li>
+</ul>
+<p>Quando a tabela referida está vazia (por exemplo, um dump parcial sem <code>servers</code>)
+o problema é reportado mas nunca corrigido automaticamente. Linha de comandos:
+<code>check --dump ficheiro.sql --fix-sql fix.sql</code>, ou <code>check --host … --fix</code>.</p>
 
 <h2><a name="templates"></a>Templates / Nova BD</h2>
 <p>Um template é o schema de uma instalação limpa de um painel. <b>Registar .sql base</b>

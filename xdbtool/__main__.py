@@ -8,6 +8,7 @@
     xui-db-tool info   <args>   # detect panel + list tables
     xui-db-tool export <args>   # export tables to json/csv/sql
     xui-db-tool maint  <args>   # check/repair/analyze/optimize (live MySQL)
+    xui-db-tool check  <args>   # integrity check: broken links between tables
     xui-db-tool migrate <args>  # migrate between databases
     xui-db-tool xui-migrate <dump> <args>  # stage an old panel DB as `xui_migrate`
 
@@ -159,6 +160,31 @@ def cmd_maint(args) -> int:
         for r in results:
             print(f"[{r.operation}] {r.table}: {r.status} — {r.message}")
     return 0
+
+
+def cmd_check(args) -> int:
+    from .core.integrity import apply_fixes, check_integrity, fix_statements, write_fix_script
+
+    with _open_source(args) as src:
+        report = check_integrity(src, _cli_progress)
+        print(file=sys.stderr)
+        for line in report.summary_lines():
+            print(line)
+        if args.verbose and report.skipped:
+            print("Not checked (tables/columns absent): " + ", ".join(report.skipped))
+        if args.fix_sql:
+            path = write_fix_script(fix_statements(report), args.fix_sql, src.label)
+            print(f"Fix script: {path}")
+        if args.fix and report.fixable:
+            result = apply_fixes(src, report, backup_dir=args.backup_dir,
+                                 progress=_cli_progress, message=print)
+            print(file=sys.stderr)
+            print(f"Backup: {result['backup']}")
+            print(f"Applied {result['statements']} statement(s), "
+                  f"{result['changed']} row(s) changed. Run the check again: fixes can "
+                  "uncover further broken links (e.g. events of a deleted device).")
+            return 0
+    return 1 if report.issues else 0
 
 
 def cmd_migrate(args) -> int:
@@ -396,6 +422,19 @@ def build_parser() -> argparse.ArgumentParser:
                     default="check")
     pm.add_argument("--tables", nargs="*")
     pm.set_defaults(func=cmd_maint)
+
+    pc = sub.add_parser(
+        "check", help="Integrity check: broken links between panel tables (exit 1 if any)")
+    _add_source_args(pc)
+    pc.add_argument("--fix-sql", metavar="FILE",
+                    help="Write the SQL that fixes every fixable problem to FILE")
+    pc.add_argument("--fix", action="store_true",
+                    help="Live MySQL: back up the affected tables, then apply the fixes")
+    pc.add_argument("--backup-dir", default="backups",
+                    help="Where --fix saves the backup (default: ./backups)")
+    pc.add_argument("-v", "--verbose", action="store_true",
+                    help="Also list the rules not checked")
+    pc.set_defaults(func=cmd_check)
 
     pg = sub.add_parser("migrate", help="Migrate rows into a target MySQL database")
     _add_source_args(pg)

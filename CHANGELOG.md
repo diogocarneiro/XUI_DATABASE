@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format is based on
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [0.3.0] - 2026-10-21
 ### Added
 - **Integrity check** — new *Integridade* tab and `check` command. Finds rows that
   point to ids that no longer exist (streams of a deleted category, bouquets listing

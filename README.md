@@ -69,9 +69,9 @@ publishes one format per audience, all listed in `SHA256SUMS.txt`:
 ```bash
 # Linux server, e.g. the XUI host itself
 curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/latest/download/SHA256SUMS.txt
-curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.2.0/xui-db-tool-0.2.0-linux-x86_64
+curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.3.0/xui-db-tool-0.3.0-linux-x86_64
 sha256sum --check --ignore-missing SHA256SUMS.txt
-chmod +x xui-db-tool-0.2.0-linux-x86_64 && ./xui-db-tool-0.2.0-linux-x86_64 --help
+chmod +x xui-db-tool-0.3.0-linux-x86_64 && ./xui-db-tool-0.3.0-linux-x86_64 --help
 ```
 
 All three update themselves: *Ajuda → Procurar actualizações* in the app, or

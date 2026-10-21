@@ -9,6 +9,7 @@
     xui-db-tool export <args>   # export tables to json/csv/sql
     xui-db-tool maint  <args>   # check/repair/analyze/optimize (live MySQL)
     xui-db-tool check  <args>   # integrity check: broken links between tables
+    xui-db-tool renumber <args> # renumber stream ids to 1..N (every reference too)
     xui-db-tool migrate <args>  # migrate between databases
     xui-db-tool xui-migrate <dump> <args>  # stage an old panel DB as `xui_migrate`
 
@@ -185,6 +186,35 @@ def cmd_check(args) -> int:
                   "uncover further broken links (e.g. events of a deleted device).")
             return 0
     return 1 if report.issues else 0
+
+
+def cmd_renumber(args) -> int:
+    from .core.renumber import apply_renumber, build_renumber, files_script, write_renumber_script
+
+    with _open_source(args) as src:
+        plan = build_renumber(src, start=args.start, order="type" if args.live_first else "id",
+                              progress=_cli_progress)
+        print(file=sys.stderr)
+        for line in plan.summary_lines():
+            print(line)
+        if plan.problems:
+            return 2
+        if not plan.mapping:
+            return 0
+        if args.sql_out:
+            print(f"SQL script: {write_renumber_script(plan, args.sql_out, src.label)}")
+        if args.files_script:
+            Path(args.files_script).write_text(files_script(plan), encoding="utf-8",
+                                               newline="\n")
+            print(f"File-rename script (run it on the server): {args.files_script}")
+        if args.apply:
+            result = apply_renumber(src, plan, backup_dir=args.backup_dir,
+                                    progress=_cli_progress, message=print)
+            print(file=sys.stderr)
+            print(f"Backup: {result['backup']}")
+            print(f"Renumbered {len(plan.mapping)} stream(s): {result['statements']} "
+                  f"statement(s), {result['changed']} row(s) changed.")
+    return 0
 
 
 def cmd_migrate(args) -> int:
@@ -435,6 +465,23 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("-v", "--verbose", action="store_true",
                     help="Also list the rules not checked")
     pc.set_defaults(func=cmd_check)
+
+    pn = sub.add_parser(
+        "renumber", help="Renumber stream ids to 1..N, updating every reference")
+    _add_source_args(pn)
+    pn.add_argument("--start", type=int, default=1, help="First new id (default: 1)")
+    pn.add_argument("--live-first", action="store_true",
+                    help="Number live channels first, then radio, movies and episodes "
+                         "(default: keep the current id order)")
+    pn.add_argument("--sql-out", metavar="FILE", help="Write the renumbering SQL to FILE")
+    pn.add_argument("--files-script", metavar="FILE",
+                    help="Write a bash script that renames movie/episode files and TV "
+                         "archive folders on the server")
+    pn.add_argument("--apply", action="store_true",
+                    help="Live MySQL: back up the affected tables, then renumber")
+    pn.add_argument("--backup-dir", default="backups",
+                    help="Where --apply saves the backup (default: ./backups)")
+    pn.set_defaults(func=cmd_renumber)
 
     pg = sub.add_parser("migrate", help="Migrate rows into a target MySQL database")
     _add_source_args(pg)

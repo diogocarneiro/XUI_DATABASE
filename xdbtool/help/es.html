@@ -5,7 +5,7 @@ gestionar</b>.</p>
 <p><b>Índice:</b>
 <a href="#start">Empezar</a> · <a href="#source">Origen de los datos</a> ·
 <a href="#ssh">Conexión SSH</a> · <a href="#export">Exportar</a> ·
-<a href="#maintenance">Mantenimiento</a> · <a href="#integrity">Integridad</a> · <a href="#templates">Plantillas</a> ·
+<a href="#maintenance">Mantenimiento</a> · <a href="#integrity">Integridad</a> · <a href="#renumber">Renumerar ids</a> · <a href="#templates">Plantillas</a> ·
 <a href="#migrate">Migrar / Restaurar</a> · <a href="#xui-migrate">Migración a XUI</a> ·
 <a href="#xui-import">Importar copia XUI</a> · <a href="#safety">Seguridad</a> ·
 <a href="#preferences">Tema e idioma</a> · <a href="#updates">Actualizaciones</a> ·
@@ -85,6 +85,32 @@ dispositivo, por ejemplo, puede revelar sus eventos antiguos.</li>
 <p>Si la tabla referida está vacía (por ejemplo, un dump parcial sin <code>servers</code>) el
 problema se informa pero nunca se corrige automáticamente. Línea de comandos:
 <code>check --dump archivo.sql --fix-sql fix.sql</code>, o <code>check --host … --fix</code>.</p>
+
+<h2><a name="renumber"></a>Renumerar ids</h2>
+<p>Tras borrar canales antiguos, los streams que quedan conservan ids altos (por ejemplo, el
+primer canal es el 300). <b>Renumerar ids</b> vuelve a dar a todos los streams — canales,
+películas, radios y episodios — ids consecutivos desde <b>Primer id nuevo</b> (1), manteniendo
+el orden actual o poniendo primero los canales en vivo. Se actualizan todas las referencias:
+servidores, episodios, opciones, bouquets, favoritos MAG, último canal visto y cada columna
+<code>stream_id</code> (registros, cola…).</p>
+<ol>
+<li>Ejecuta <a href="#integrity">Integridad</a> y aplica sus correcciones: las referencias a
+streams borrados cuyos ids se reutilizarían bloquean la renumeración (en los registros
+simplemente se borran).</li>
+<li>Haz clic en <b>Vista previa</b>: muestra el rango de ids antiguo y nuevo y cuántas filas
+cambian en cada tabla.</li>
+<li>Detén los streams y pulsa <b>Renumerar ahora</b> (conexión en vivo; escribe el nombre de la
+base de datos para confirmar). Se hace una copia SQL de las tablas afectadas en la carpeta de
+exportación (<code>renumber-FECHA</code>) y todo se ejecuta en una transacción. Para un dump,
+usa <b>Guardar script SQL…</b>.</li>
+<li><b>Guardar script de renombrado…</b> y ejecútalo en el servidor como root (<code>bash
+renumber_files.sh</code>): renombra los archivos de películas/episodios y las carpetas del
+archivo de TV que llevan el id en el nombre.</li>
+<li>Reinicia XUI. Las URL de reproducción cambian (<code>…/live/user/pass/ID.ts</code>): los
+clientes deben recargar su lista M3U.</li>
+</ol>
+<p>Línea de comandos: <code>renumber --dump archivo.sql --sql-out renumber.sql
+--files-script files.sh</code>, o <code>renumber --host … --apply</code>.</p>
 
 <h2><a name="templates"></a>Plantillas / Nueva BD</h2>
 <p>Una plantilla es el esquema de una instalación limpia de un panel. <b>Registrar .sql

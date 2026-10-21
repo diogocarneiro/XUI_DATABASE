@@ -4,7 +4,7 @@ ZapX, Xtream Codes v2) que gerem bases de dados <b>suas ou que estão autorizado
 <p><b>Índice:</b>
 <a href="#start">Começar</a> · <a href="#source">Origem dos dados</a> ·
 <a href="#ssh">Ligação por SSH</a> · <a href="#export">Exportar</a> ·
-<a href="#maintenance">Manutenção</a> · <a href="#integrity">Integridade</a> · <a href="#templates">Templates</a> ·
+<a href="#maintenance">Manutenção</a> · <a href="#integrity">Integridade</a> · <a href="#renumber">Renumerar IDs</a> · <a href="#templates">Templates</a> ·
 <a href="#migrate">Migrar / Restaurar</a> · <a href="#xui-migrate">Migração para XUI</a> ·
 <a href="#xui-import">Importar backup XUI</a> · <a href="#safety">Segurança</a> ·
 <a href="#preferences">Tema e idioma</a> · <a href="#updates">Actualizações</a> ·
@@ -84,6 +84,32 @@ exemplo, pode revelar os seus eventos antigos.</li>
 <p>Quando a tabela referida está vazia (por exemplo, um dump parcial sem <code>servers</code>)
 o problema é reportado mas nunca corrigido automaticamente. Linha de comandos:
 <code>check --dump ficheiro.sql --fix-sql fix.sql</code>, ou <code>check --host … --fix</code>.</p>
+
+<h2><a name="renumber"></a>Renumerar IDs</h2>
+<p>Depois de apagar canais antigos, os streams que ficam mantêm IDs altos (por exemplo, o
+primeiro canal é o 300). <b>Renumerar IDs</b> volta a dar a todos os streams — canais, filmes,
+rádios e episódios — IDs seguidos a partir de <b>Primeiro ID novo</b> (1), mantendo a ordem
+actual ou pondo os canais em directo primeiro. Todas as referências são actualizadas:
+servidores, episódios, opções, bouquets, favoritos MAG, último canal visto e todas as colunas
+<code>stream_id</code> (logs, fila…).</p>
+<ol>
+<li>Corre a <a href="#integrity">Integridade</a> e aplica as correcções: referências a streams
+apagados cujos IDs iam ser reutilizados bloqueiam a renumeração (nos logs são simplesmente
+limpas).</li>
+<li>Clica em <b>Pré-visualizar</b>: mostra o intervalo de IDs antigo e novo e quantas linhas
+mudam em cada tabela.</li>
+<li>Pára os streams e clica em <b>Renumerar agora</b> (ligação em directo; escreve o nome da
+base de dados para confirmar). É feito um backup SQL das tabelas afectadas na pasta de
+exportação (<code>renumber-DATA</code>) e tudo corre numa transacção. Para um dump, usa
+<b>Guardar script SQL…</b>.</li>
+<li><b>Guardar script de renomeação…</b> e corre-o no servidor como root (<code>bash
+renumber_files.sh</code>): renomeia os ficheiros de filmes/episódios e as pastas do arquivo de
+TV que têm o ID no nome.</li>
+<li>Reinicia o XUI. Os URLs de reprodução mudam (<code>…/live/user/pass/ID.ts</code>): os
+clientes têm de recarregar a lista M3U.</li>
+</ol>
+<p>Linha de comandos: <code>renumber --dump ficheiro.sql --sql-out renumber.sql
+--files-script files.sh</code>, ou <code>renumber --host … --apply</code>.</p>
 
 <h2><a name="templates"></a>Templates / Nova BD</h2>
 <p>Um template é o schema de uma instalação limpa de um painel. <b>Registar .sql base</b>

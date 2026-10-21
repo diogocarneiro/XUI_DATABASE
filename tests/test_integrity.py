@@ -5,15 +5,13 @@
 
 from __future__ import annotations
 
-import sqlite3
-
 import pytest
+from sqlite_db import FakeMySQL, SqliteSource
 
 from xdbtool.__main__ import main
 from xdbtool.core import integrity as I
 from xdbtool.core.dump_source import SqlDumpSource
-from xdbtool.core.mysql_source import MySQLSource
-from xdbtool.core.source import ColumnInfo, DataSource, SourceError, TableInfo
+from xdbtool.core.source import ColumnInfo, SourceError
 
 BROKEN_XUI = """\
 CREATE TABLE `servers` (
@@ -229,67 +227,6 @@ def test_clean_fixture_has_no_problems():
 
 
 # --------------------------------------------------------- applying the fixes
-class SqliteSource(DataSource):
-    """A dump copied into SQLite, so the generated fix SQL can really run."""
-
-    def __init__(self, dump):
-        self.label = "sqlite"
-        self.db = sqlite3.connect(":memory:")
-        with SqlDumpSource(dump) as src:
-            self.columns = {t: list(src.table_info(t).columns) for t in src.list_tables()}
-            for t, cols in self.columns.items():
-                self.db.execute(f"CREATE TABLE `{t}` ({', '.join(f'`{c.name}`' for c in cols)})")
-                marks = ", ".join("?" for _ in cols)
-                self.db.executemany(f"INSERT INTO `{t}` VALUES ({marks})",
-                                    [tuple(r.values()) for r in src.iter_rows(t)])
-
-    def open(self):
-        pass
-
-    def close(self):
-        pass
-
-    def list_tables(self):
-        return sorted(self.columns)
-
-    def table_info(self, table):
-        return TableInfo(table, tuple(self.columns[table]))
-
-    def row_count(self, table):
-        return self.db.execute(f"SELECT COUNT(*) FROM `{table}`").fetchone()[0]
-
-    def iter_rows(self, table, batch_size=1000):
-        names = [c.name for c in self.columns[table]]
-        for row in self.db.execute(f"SELECT * FROM `{table}`"):
-            yield dict(zip(names, row, strict=True))
-
-
-class FakeMySQL(MySQLSource):
-    """MySQLSource over SQLite: apply_fixes only accepts live MySQL sources."""
-
-    def __init__(self, inner: SqliteSource):  # no real connection
-        self.inner, self.label, self._conn = inner, "fake-mysql", None
-
-    def list_tables(self):
-        return self.inner.list_tables()
-
-    def table_info(self, table):
-        return self.inner.table_info(table)
-
-    def row_count(self, table):
-        return self.inner.row_count(table)
-
-    def iter_rows(self, table, batch_size=1000):
-        return self.inner.iter_rows(table, batch_size)
-
-    def iter_columns(self, table, columns, batch_size=1000):
-        return self.inner.iter_columns(table, columns, batch_size)
-
-    def run_transaction(self, statements, progress=None):
-        with self.inner.db:
-            return sum(self.inner.db.execute(s).rowcount for s in statements)
-
-
 def test_fixes_run_and_a_second_check_finds_the_uncovered_orphan(broken, tmp_path):
     src = FakeMySQL(SqliteSource(broken))
     report = I.check_integrity(src)

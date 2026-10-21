@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-21
+### Added
+- **Renumber stream ids** — new *Renumerar IDs* tab and `renumber` command. After
+  old channels are deleted, gives every stream (channels, movies, radios, episodes)
+  consecutive ids again from 1 (or any start), keeping the current order or putting
+  live channels first, and updates every reference: `streams_servers`, episodes,
+  options, bouquet lists, MAG favourites and last channel, and every `stream_id`
+  column (activity logs, queue…). XUI.one and Xtream-UI / StreamCreed.
+- *Preview* shows the old/new id range and the rows changed per table. *Renumber
+  now* (`--apply`, live MySQL; type the database name to confirm) backs up every
+  affected table as SQL, then runs in one transaction and resets `AUTO_INCREMENT`;
+  *Save SQL script…* (`--sql-out`) does the same as a script.
+- *Save file-rename script…* (`--files-script`): a bash script for the server that
+  renames movie/episode files and TV archive folders named by stream id.
+
+### Safety
+- Refuses to renumber while bouquets, servers or episodes still point to deleted
+  streams whose ids would be reused (run the Integrity fixes first); such
+  references in logs are cleared and removed from MAG favourites, so nothing ends
+  up pointing at a different stream.
+- Ids move through a temporary offset, so unique keys never clash mid-update.
+
 ## [0.3.0] - 2026-10-21
 ### Added
 - **Integrity check** — new *Integridade* tab and `check` command. Finds rows that

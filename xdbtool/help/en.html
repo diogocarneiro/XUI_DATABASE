@@ -4,7 +4,7 @@ ZapX, Xtream Codes v2) working on databases they <b>own or are authorised to man
 <p><b>Contents:</b>
 <a href="#start">Getting started</a> · <a href="#source">Data source</a> ·
 <a href="#ssh">SSH connections</a> · <a href="#export">Export</a> ·
-<a href="#maintenance">Maintenance</a> · <a href="#integrity">Integrity</a> · <a href="#templates">Templates</a> ·
+<a href="#maintenance">Maintenance</a> · <a href="#integrity">Integrity</a> · <a href="#renumber">Renumber IDs</a> · <a href="#templates">Templates</a> ·
 <a href="#migrate">Migrate / Restore</a> · <a href="#xui-migrate">Migrating to XUI</a> ·
 <a href="#xui-import">Importing an XUI backup</a> · <a href="#safety">Safety</a> ·
 <a href="#preferences">Theme and language</a> · <a href="#updates">Updates</a> ·
@@ -82,6 +82,30 @@ uncover its old events.</li>
 <p>When the referenced table is empty (for example a partial dump without <code>servers</code>)
 the problem is reported but never fixed automatically. Command line:
 <code>check --dump file.sql --fix-sql fix.sql</code>, or <code>check --host … --fix</code>.</p>
+
+<h2><a name="renumber"></a>Renumber IDs</h2>
+<p>After old channels are deleted the remaining streams keep their high ids (the first
+channel is 300, say). <b>Renumber IDs</b> gives every stream — channels, movies, radios and
+episodes — consecutive ids again from <b>First new id</b> (1), keeping the current order or
+putting live channels first. Every reference is updated with it: servers, episodes, options,
+bouquets, MAG favourites, last channel watched and every <code>stream_id</code> column (logs,
+queue…).</p>
+<ol>
+<li>Run <a href="#integrity">Integrity</a> and apply its fixes: references to deleted streams
+whose ids would be reused block the renumbering (in logs they are simply cleared).</li>
+<li>Click <b>Preview</b>: it shows the old and new id range and how many rows change in each
+table.</li>
+<li>Stop the streams, then <b>Renumber now</b> (live connection; type the database name to
+confirm). The affected tables are backed up as SQL to the export folder
+(<code>renumber-DATE</code>) and everything runs in one transaction. For a dump, use <b>Save SQL
+script…</b>.</li>
+<li><b>Save file-rename script…</b> and run it on the server as root (<code>bash
+renumber_files.sh</code>): it renames movie/episode files and TV archive folders named by id.</li>
+<li>Restart XUI. Playback URLs change (<code>…/live/user/pass/ID.ts</code>): clients must reload
+their M3U playlist.</li>
+</ol>
+<p>Command line: <code>renumber --dump file.sql --sql-out renumber.sql --files-script
+files.sh</code>, or <code>renumber --host … --apply</code>.</p>
 
 <h2><a name="templates"></a>Templates / New DB</h2>
 <p>A template is the schema of a clean panel installation. <b>Register base .sql</b> stores

@@ -5,7 +5,7 @@ ou qu'ils sont autorisés à gérer</b>.</p>
 <p><b>Sommaire :</b>
 <a href="#start">Démarrer</a> · <a href="#source">Source des données</a> ·
 <a href="#ssh">Connexion SSH</a> · <a href="#export">Export</a> ·
-<a href="#maintenance">Maintenance</a> · <a href="#integrity">Intégrité</a> · <a href="#templates">Modèles</a> ·
+<a href="#maintenance">Maintenance</a> · <a href="#integrity">Intégrité</a> · <a href="#renumber">Renuméroter les ids</a> · <a href="#templates">Modèles</a> ·
 <a href="#migrate">Migrer / Restaurer</a> · <a href="#xui-migrate">Migration vers XUI</a> ·
 <a href="#xui-import">Importer une sauvegarde XUI</a> · <a href="#safety">Sécurité</a> ·
 <a href="#preferences">Thème et langue</a> · <a href="#updates">Mises à jour</a> ·
@@ -89,6 +89,32 @@ corrigeable : supprimer un appareil, par exemple, peut révéler ses anciens év
 <p>Si la table référencée est vide (par exemple un dump partiel sans <code>servers</code>), le
 problème est signalé mais jamais corrigé automatiquement. Ligne de commande :
 <code>check --dump fichier.sql --fix-sql fix.sql</code>, ou <code>check --host … --fix</code>.</p>
+
+<h2><a name="renumber"></a>Renuméroter les ids</h2>
+<p>Après la suppression d'anciennes chaînes, les streams restants gardent des ids élevés (la
+première chaîne est la 300, par exemple). <b>Renuméroter les ids</b> redonne à tous les streams
+— chaînes, films, radios et épisodes — des ids consécutifs à partir de <b>Premier nouvel id</b>
+(1), en gardant l'ordre actuel ou en plaçant les chaînes en direct d'abord. Toutes les
+références sont mises à jour : serveurs, épisodes, options, bouquets, favoris MAG, dernière
+chaîne regardée et chaque colonne <code>stream_id</code> (journaux, file d'attente…).</p>
+<ol>
+<li>Lancez l'<a href="#integrity">Intégrité</a> et appliquez ses corrections : les références à
+des streams supprimés dont les ids seraient réutilisés bloquent la renumérotation (dans les
+journaux elles sont simplement effacées).</li>
+<li>Cliquez sur <b>Aperçu</b> : il montre l'ancienne et la nouvelle plage d'ids et le nombre de
+lignes modifiées par table.</li>
+<li>Arrêtez les streams, puis <b>Renuméroter maintenant</b> (connexion en direct ; tapez le nom
+de la base pour confirmer). Les tables concernées sont sauvegardées en SQL dans le dossier
+d'export (<code>renumber-DATE</code>) et tout s'exécute dans une transaction. Pour un dump,
+utilisez <b>Enregistrer le script SQL…</b>.</li>
+<li><b>Enregistrer le script de renommage…</b> et exécutez-le sur le serveur en root
+(<code>bash renumber_files.sh</code>) : il renomme les fichiers de films/épisodes et les dossiers
+d'archive TV nommés par id.</li>
+<li>Redémarrez XUI. Les URL de lecture changent (<code>…/live/user/pass/ID.ts</code>) : les
+clients doivent recharger leur playlist M3U.</li>
+</ol>
+<p>Ligne de commande : <code>renumber --dump fichier.sql --sql-out renumber.sql
+--files-script files.sh</code>, ou <code>renumber --host … --apply</code>.</p>
 
 <h2><a name="templates"></a>Modèles / Nouvelle BD</h2>
 <p>Un modèle est le schéma d'une installation propre d'un panneau. <b>Enregistrer un .sql de

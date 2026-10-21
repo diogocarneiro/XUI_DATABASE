@@ -33,6 +33,11 @@ MySQL/MariaDB connection or from an offline `mysqldump` `.sql` file.
   servers or lines (bouquet and line id lists included), repeated ids, duplicate
   usernames/MACs and streams without a server; fixes them in one transaction after
   backing up the affected tables, or writes the fix as a `.sql` script (dumps too).
+- **Renumber stream ids** — after old channels are deleted, compacts `streams.id`
+  to 1..N again (keeping the order, or live channels first) and updates every
+  reference: servers, episodes, bouquets, MAG favourites, logs. Backup + one
+  transaction, or a `.sql` script; plus a server script that renames movie files and
+  TV archive folders named by id.
 - **Migration** — column-level mapping between a source and a target database;
   transfers only columns present on both sides, so target auto-increment/defaults
   are preserved. Can execute live or emit a `.sql` script (dry run).
@@ -69,9 +74,9 @@ publishes one format per audience, all listed in `SHA256SUMS.txt`:
 ```bash
 # Linux server, e.g. the XUI host itself
 curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/latest/download/SHA256SUMS.txt
-curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.3.0/xui-db-tool-0.3.0-linux-x86_64
+curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.4.0/xui-db-tool-0.4.0-linux-x86_64
 sha256sum --check --ignore-missing SHA256SUMS.txt
-chmod +x xui-db-tool-0.3.0-linux-x86_64 && ./xui-db-tool-0.3.0-linux-x86_64 --help
+chmod +x xui-db-tool-0.4.0-linux-x86_64 && ./xui-db-tool-0.4.0-linux-x86_64 --help
 ```
 
 All three update themselves: *Ajuda → Procurar actualizações* in the app, or
@@ -118,6 +123,11 @@ python -m xdbtool maint --host 127.0.0.1 --user root --password secret \
 # Integrity check: list broken links; write the fix as SQL, or (live) back up and apply it
 python -m xdbtool check --dump backup.sql --fix-sql fix.sql
 python -m xdbtool check --host 127.0.0.1 --user root --password secret     --database xui --fix --backup-dir ./backups
+
+# Renumber stream ids to 1..N (preview, then SQL + file-rename scripts, or apply live)
+python -m xdbtool renumber --dump backup.sql --sql-out renumber.sql --files-script files.sh
+python -m xdbtool renumber --host 127.0.0.1 --user root --password secret \
+    --database xui --apply --backup-dir ./backups
 
 # Migrate from an old dump into a fresh panel DB (dry run → SQL file)
 python -m xdbtool migrate --dump old_panel.sql \

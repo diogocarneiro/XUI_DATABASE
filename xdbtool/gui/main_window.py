@@ -39,7 +39,15 @@ from PySide6.QtWidgets import (
 
 from .. import __version__
 from .. import about as about_info
-from ..core import integrity, profiles, templates, updater, xui_import, xui_migrate
+from ..core import (
+    integrity,
+    profiles,
+    renumber,
+    templates,
+    updater,
+    xui_import,
+    xui_migrate,
+)
 from ..core.config import (
     ConnectionProfile,
     load_settings,
@@ -74,6 +82,7 @@ class MainWindow(QMainWindow):
         self.resize(1040, 720)
         self.source: DataSource | None = None
         self.integrity_report: integrity.IntegrityReport | None = None
+        self.renumber_plan: renumber.RenumberPlan | None = None
         self.runner = JobRunner(self)
         self.update_runner = JobRunner(self)  # update checks never block real work
         self._build_ui()
@@ -383,6 +392,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_export_tab(), _("Export / Backup"))
         tabs.addTab(self._build_maint_tab(), _("Maintenance"))
         tabs.addTab(self._build_integrity_tab(), _("Integrity"))
+        tabs.addTab(self._build_renumber_tab(), _("Renumber IDs"))
         tabs.addTab(self._build_templates_tab(), _("Templates / New DB"))
         tabs.addTab(self._build_migrate_tab(), _("Migrate / Restore"))
         tabs.addTab(self._build_xui_migrate_tab(), _("XUI Migration"))
@@ -571,6 +581,147 @@ class MainWindow(QMainWindow):
             return integrity.check_integrity(src, progress)
 
         self._start_custom(job, self._show_integrity_result)
+
+    def _build_renumber_tab(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        intro = QLabel(_("Gives the streams consecutive ids again (1, 2, 3…) keeping their order, "
+                         "and updates every reference: servers, episodes, bouquets, MAG "
+                         "favourites and logs."))
+        intro.setWordWrap(True)
+        warn = QLabel(_("<b>Stream ids are part of every playback URL.</b> After renumbering, "
+                        "restart XUI, clients must reload their M3U playlist, and movie files "
+                        "stored by id must be renamed on the server (file-rename script). "
+                        "Run the Integrity check first."))
+        warn.setWordWrap(True)
+        form = QFormLayout()
+        self.renumber_start = QSpinBox()
+        self.renumber_start.setRange(1, 999_999_999)
+        self.renumber_order = QComboBox()
+        self.renumber_order.addItem(_("Keep the current order"), "id")
+        self.renumber_order.addItem(_("Live channels first, then radio, movies, episodes"),
+                                    "type")
+        self.renumber_start.valueChanged.connect(lambda _v: self._show_renumber(None))
+        self.renumber_order.currentIndexChanged.connect(lambda _i: self._show_renumber(None))
+        form.addRow(_("First new id:"), self.renumber_start)
+        form.addRow(_("Order:"), self.renumber_order)
+        preview_btn = self._role(QPushButton(_("Preview")), "primary")
+        preview_btn.clicked.connect(self._do_renumber_preview)
+        self.renumber_view = QPlainTextEdit()
+        self.renumber_view.setReadOnly(True)
+        sql_btn = QPushButton(_("Save SQL script…"))
+        sql_btn.clicked.connect(self._save_renumber_sql)
+        files_btn = QPushButton(_("Save file-rename script…"))
+        files_btn.clicked.connect(self._save_renumber_files)
+        apply_btn = self._role(QPushButton(_("Renumber now")), "danger")
+        apply_btn.clicked.connect(self._apply_renumber)
+        buttons = QHBoxLayout()
+        for b in (sql_btn, files_btn, apply_btn):
+            buttons.addWidget(b)
+        buttons.addStretch(1)
+        v.addWidget(intro)
+        v.addWidget(warn)
+        v.addLayout(form)
+        v.addWidget(preview_btn, 0, Qt.AlignLeft)
+        v.addWidget(self.renumber_view, 1)
+        v.addLayout(buttons)
+        return w
+
+    def _show_renumber(self, plan: renumber.RenumberPlan | None) -> None:
+        self.renumber_plan = plan
+        self.renumber_view.setPlainText("\n".join(plan.summary_lines()) if plan else "")
+
+    def _ready_renumber_plan(self) -> renumber.RenumberPlan | None:
+        """The previewed plan, if it can be applied; explains why not otherwise."""
+        plan = self.renumber_plan
+        if plan is None:
+            QMessageBox.information(self, _("Preview first"),
+                                    _("Click Preview to plan the renumbering first."))
+        elif plan.problems:
+            QMessageBox.warning(self, _("Cannot renumber yet"), "\n\n".join(plan.problems))
+        elif not plan.mapping:
+            QMessageBox.information(self, _("Nothing to renumber"), _(
+                "The stream ids are already consecutive from {start}; nothing to renumber.",
+                start=plan.start))
+        else:
+            return plan
+        return None
+
+    def _do_renumber_preview(self) -> None:
+        if self._busy_guard():
+            return
+        src = self.source
+        start, order = self.renumber_start.value(), self.renumber_order.currentData()
+
+        def job(progress, message):
+            message(_("Planning the renumbering of {label}…", label=src.label))
+            return renumber.build_renumber(src, start=start, order=order, progress=progress)
+
+        def done(plan):
+            self.progress.setValue(100)
+            self._show_renumber(plan)
+
+        self._start_custom(job, done)
+
+    def _save_renumber_sql(self) -> None:
+        plan = self._ready_renumber_plan()
+        if plan is None:
+            return
+        path, _sel = QFileDialog.getSaveFileName(self, _("Save SQL script"), "renumber.sql",
+                                                 SQL_FILTER)
+        if path:
+            renumber.write_renumber_script(plan, path, self.source.label if self.source else "")
+            self._log(_("SQL script saved: {path}", path=path))
+
+    def _save_renumber_files(self) -> None:
+        plan = self._ready_renumber_plan()
+        if plan is None:
+            return
+        path, _sel = QFileDialog.getSaveFileName(self, _("Save file-rename script"),
+                                                 "renumber_files.sh", "Shell (*.sh);;*.*")
+        if path:
+            Path(path).write_text(renumber.files_script(plan), encoding="utf-8", newline="\n")
+            self._log(_("File-rename script saved: {path} — run it on the server as root "
+                        "(bash {name}) after renumbering.", path=path, name=Path(path).name))
+
+    def _apply_renumber(self) -> None:
+        if self._busy_guard():
+            return
+        plan = self._ready_renumber_plan()
+        if plan is None:
+            return
+        if not isinstance(self.source, MySQLSource):
+            QMessageBox.information(self, _("Live connection needed"), _(
+                "A dump file cannot be changed in place. Use “Save SQL script…” and run it on "
+                "the server, or connect to the live database."))
+            return
+        db = self.source.config.database
+        text, ok = QInputDialog.getText(self, _("Renumber stream ids"), _(
+            "{count} stream(s) get new ids in `{db}`; tables changed: {tables}.\n"
+            "They are backed up first to {folder}. Stop the streams before, restart XUI "
+            "after.\n\nType the database name to continue:", count=len(plan.mapping), db=db,
+            tables=", ".join(plan.tables), folder=self.export_dir.text()))
+        if not ok or text.strip() != db:
+            return
+        src, folder = self.source, Path(self.export_dir.text())
+        start, order = plan.start, plan.order
+
+        def job(progress, message):
+            result = renumber.apply_renumber(src, plan, backup_dir=folder, progress=progress,
+                                             message=message)
+            message(_("Backup: {folder}", folder=result["backup"]))
+            message(_("Applied {count} statement(s), {rows} row(s) changed.",
+                      count=result["statements"], rows=result["changed"]))
+            for note in renumber.after_notes():
+                message("  " + note)
+            return renumber.build_renumber(src, start=start, order=order)
+
+        def done(new_plan):
+            self.progress.setValue(100)
+            self._show_renumber(new_plan)
+            self._populate_tables()
+
+        self._start_custom(job, done)
 
     def _build_templates_tab(self) -> QWidget:
         w = QWidget()
@@ -1410,6 +1561,7 @@ class MainWindow(QMainWindow):
             return
         self.source = src
         self._show_integrity(None)
+        self._show_renumber(None)
         self._log(_("Connected: {label}", label=src.label))
         self._populate_tables()
 

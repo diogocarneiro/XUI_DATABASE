@@ -38,8 +38,36 @@ class TableInfo:
     collation: str | None = None
 
 
+@dataclass(frozen=True)
+class Page:
+    """One page of a table's rows, as returned by :meth:`DataSource.fetch_page`."""
+
+    columns: Sequence[str]
+    rows: Sequence[tuple]
+    total: int       # rows matching the search (all pages)
+    offset: int = 0
+
+
 class SourceError(RuntimeError):
     """Raised for any recoverable data-source problem (connection, parse, query)."""
+
+
+def cell_text(value: object) -> str:
+    """A value as searchable/displayable text (bytes decoded, None as '')."""
+    if value is None:
+        return ""
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value).decode("utf-8", "replace")
+    return str(value)
+
+
+def _sort_key(value: object) -> tuple:
+    """Order NULLs first, numbers numerically, everything else as text."""
+    if value is None:
+        return (0, 0, "")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return (1, value, "")
+    return (2, 0, cell_text(value).lower())
 
 
 class DataSource(abc.ABC):
@@ -94,6 +122,55 @@ class DataSource(abc.ABC):
         """Yield only ``columns`` of each row, as tuples (sources may read less)."""
         for row in self.iter_rows(table, batch_size):
             yield tuple(row.get(c) for c in columns)
+
+    def _page_columns(self, table: str, columns, *named) -> tuple[list[str], list[str]]:
+        """(all columns, shown columns); raises for an unknown column name."""
+        every = [c.name for c in self.table_info(table).columns]
+        shown = list(columns) if columns else every
+        unknown = [c for c in (*shown, *named) if c and c not in every]
+        if unknown:
+            raise SourceError(f"Unknown column(s) in `{table}`: {', '.join(unknown)}")
+        return every, shown
+
+    def fetch_page(
+        self,
+        table: str,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+        search: str = "",
+        column: str | None = None,
+        columns: Sequence[str] | None = None,
+        order_by: str | None = None,
+        descending: bool = False,
+    ) -> Page:
+        """Rows ``offset``..``offset+limit`` of ``table``.
+
+        ``search`` keeps rows where ``column`` (or any column) contains the text,
+        ignoring case; ``order_by`` sorts by a column; ``columns`` picks the columns
+        returned. This default reads the rows in Python; live sources do it in SQL.
+        """
+        _every, shown = self._page_columns(table, columns, column, order_by)
+        needle = search.lower()
+        if not needle and not order_by:
+            rows = []
+            for n, row in enumerate(self.iter_rows(table)):
+                if n >= offset + limit:
+                    break
+                if n >= offset:
+                    rows.append(tuple(row.get(c) for c in shown))
+            return Page(shown, rows, self.row_count(table), offset)
+        matched = []
+        for row in self.iter_rows(table):
+            if needle:
+                values = [row.get(column)] if column else row.values()
+                if not any(needle in cell_text(v).lower() for v in values):
+                    continue
+            matched.append(row)
+        if order_by:
+            matched.sort(key=lambda r: _sort_key(r.get(order_by)), reverse=descending)
+        rows = [tuple(r.get(c) for c in shown) for r in matched[offset:offset + limit]]
+        return Page(shown, rows, len(matched), offset)
 
     # -- optional server info ---------------------------------------------
     def server_info(self) -> dict[str, str]:

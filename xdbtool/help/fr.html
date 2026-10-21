@@ -4,7 +4,7 @@ StreamCreed, ZapX, Xtream Codes v2) qui gèrent des bases de données <b>qui leu
 ou qu'ils sont autorisés à gérer</b>.</p>
 <p><b>Sommaire :</b>
 <a href="#start">Démarrer</a> · <a href="#source">Source des données</a> ·
-<a href="#ssh">Connexion SSH</a> · <a href="#export">Export</a> ·
+<a href="#ssh">Connexion SSH</a> · <a href="#viewer">Voir les données</a> · <a href="#export">Export</a> ·
 <a href="#maintenance">Maintenance</a> · <a href="#integrity">Intégrité</a> · <a href="#renumber">Renuméroter les ids</a> · <a href="#templates">Modèles</a> ·
 <a href="#migrate">Migrer / Restaurer</a> · <a href="#xui-migrate">Migration vers XUI</a> ·
 <a href="#xui-import">Importer une sauvegarde XUI</a> · <a href="#safety">Sécurité</a> ·
@@ -47,6 +47,29 @@ l'utilisateur et le mot de passe <i>SSH</i> ; laissez le mot de passe MySQL vide
 passe, comme celui de <code>/home/xui/config/config.ini</code>.</li>
 </ul>
 <p>Les onglets Modèles et Migrer / Restaurer proposent le même choix.</p>
+
+<h2><a name="viewer"></a>Voir les données</h2>
+<p>Double-cliquez sur une table de la liste <b>Tables</b> (ou sélectionnez-la et cliquez sur
+<b>Voir les données…</b>) pour ouvrir ses lignes dans une fenêtre séparée ; plusieurs tables
+peuvent être ouvertes en même temps. Fonctionne sur les bases en direct et les dumps — en direct,
+la recherche, le tri et la pagination s'exécutent sur le serveur, donc même les tables de
+millions de lignes s'ouvrent aussitôt.</p>
+<ul>
+<li><b>Rechercher</b> trouve les lignes contenant le texte (sans tenir compte de la casse) dans
+toutes les colonnes, ou dans la colonne choisie à côté ; <b>Effacer</b> réaffiche tout.</li>
+<li>Cliquez sur l'en-tête d'une colonne pour trier ; cliquez à nouveau pour l'ordre
+décroissant.</li>
+<li>« ‹ › » changent de page ; choisissez de 50 à 1000 lignes par page.</li>
+<li>Double-cliquez sur une ligne (ou <b>Détails de la ligne…</b>) pour voir toutes les colonnes
+en entier, avec les listes JSON, comme les chaînes d'un bouquet, mises en forme.</li>
+<li>Ctrl+C copie les cellules sélectionnées (séparées par des tabulations, prêtes pour un
+tableur).</li>
+<li>Les mots de passe, hashes, jetons et clés s'affichent en •••••• ; cochez <b>Afficher mots de
+passe/clés</b> pour les voir.</li>
+</ul>
+<p>La fenêtre est en lecture seule. Ligne de commande : <code>view streams --dump fichier.sql
+--search sport --columns id,stream_display_name --order id</code> (<code>--json</code> pour du
+JSON).</p>
 
 <h2><a name="export"></a>Export / Sauvegarde</h2>
 <p>Exporte les tables cochées en <b>JSON</b>, <b>CSV</b> ou <b>SQL</b> (avec

@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-21
+### Added
+- **Data viewer** — double-click a table (or *Ver dados…*) to browse its rows in a
+  separate window; several can be open at once. Search in every column or one
+  (ignoring case), sort by clicking a column header, pages of 50–1000 rows, full row
+  details with JSON lists laid out readably, Ctrl+C copies the selected cells as
+  tab-separated text. On live databases search, sorting and paging run in SQL, so
+  tables with millions of rows open instantly; dumps work too.
+- Passwords, hashes, tokens and keys are masked (••••••) until *Mostrar
+  passwords/chaves* is ticked.
+- CLI `view <table>`: `--search`, `--column`, `--columns`, `--order`/`--desc`,
+  `--limit`/`--offset`, `--json`; secrets masked unless `--show-secrets`.
+
 ## [0.4.0] - 2026-10-21
 ### Added
 - **Renumber stream ids** — new *Renumerar IDs* tab and `renumber` command. After

@@ -3,7 +3,7 @@
 ZapX, Xtream Codes v2) working on databases they <b>own or are authorised to manage</b>.</p>
 <p><b>Contents:</b>
 <a href="#start">Getting started</a> · <a href="#source">Data source</a> ·
-<a href="#ssh">SSH connections</a> · <a href="#export">Export</a> ·
+<a href="#ssh">SSH connections</a> · <a href="#viewer">View data</a> · <a href="#export">Export</a> ·
 <a href="#maintenance">Maintenance</a> · <a href="#integrity">Integrity</a> · <a href="#renumber">Renumber IDs</a> · <a href="#templates">Templates</a> ·
 <a href="#migrate">Migrate / Restore</a> · <a href="#xui-migrate">Migrating to XUI</a> ·
 <a href="#xui-import">Importing an XUI backup</a> · <a href="#safety">Safety</a> ·
@@ -43,6 +43,25 @@ leave the MySQL password empty.</li>
 in <code>/home/xui/config/config.ini</code>.</li>
 </ul>
 <p>The Templates and Migrate / Restore tabs offer the same choice.</p>
+
+<h2><a name="viewer"></a>View data</h2>
+<p>Double-click a table in the <b>Tables</b> list (or select it and click <b>View data…</b>) to
+open its rows in a separate window; several tables can be open at once. It works on live
+databases and dumps — on a live connection searching, sorting and paging run on the server,
+so even tables with millions of rows open instantly.</p>
+<ul>
+<li><b>Search</b> finds rows containing the text (any letter case) in every column, or in the
+column picked next to it; <b>Clear</b> shows everything again.</li>
+<li>Click a column header to sort by it; click again for descending order.</li>
+<li>« ‹ › » move between pages; choose 50 to 1000 rows per page.</li>
+<li>Double-click a row (or <b>Row details…</b>) to see every column in full, with JSON lists
+such as bouquet channels laid out readably.</li>
+<li>Ctrl+C copies the selected cells (tab-separated, ready for a spreadsheet).</li>
+<li>Passwords, hashes, tokens and keys show as ••••••; tick <b>Show passwords/keys</b> to see
+them.</li>
+</ul>
+<p>The window is read-only. Command line: <code>view streams --dump file.sql --search sport
+--columns id,stream_display_name --order id</code> (<code>--json</code> for JSON).</p>
 
 <h2><a name="export"></a>Export / Backup</h2>
 <p>Exports the ticked tables as <b>JSON</b>, <b>CSV</b> or <b>SQL</b> (with

@@ -4,7 +4,7 @@ ZapX, Xtream Codes v2) che gestiscono database <b>di loro proprietà o che sono 
 gestire</b>.</p>
 <p><b>Indice:</b>
 <a href="#start">Per iniziare</a> · <a href="#source">Origine dei dati</a> ·
-<a href="#ssh">Connessione SSH</a> · <a href="#export">Esporta</a> ·
+<a href="#ssh">Connessione SSH</a> · <a href="#viewer">Visualizza dati</a> · <a href="#export">Esporta</a> ·
 <a href="#maintenance">Manutenzione</a> · <a href="#integrity">Integrità</a> · <a href="#renumber">Rinumera id</a> · <a href="#templates">Modelli</a> ·
 <a href="#migrate">Migra / Ripristina</a> · <a href="#xui-migrate">Migrazione a XUI</a> ·
 <a href="#xui-import">Importare un backup XUI</a> · <a href="#safety">Sicurezza</a> ·
@@ -44,6 +44,28 @@ password <i>SSH</i>; lascia vuota la password MySQL.</li>
 <code>/home/xui/config/config.ini</code>.</li>
 </ul>
 <p>Le schede Modelli e Migra / Ripristina offrono la stessa scelta.</p>
+
+<h2><a name="viewer"></a>Visualizza dati</h2>
+<p>Fai doppio clic su una tabella dell'elenco <b>Tabelle</b> (o selezionala e fai clic su
+<b>Visualizza dati…</b>) per aprirne le righe in una finestra separata; puoi tenere aperte più
+tabelle contemporaneamente. Funziona su database live e dump — in live ricerca, ordinamento e
+paginazione avvengono sul server, quindi anche tabelle con milioni di righe si aprono
+subito.</p>
+<ul>
+<li><b>Cerca</b> trova le righe che contengono il testo (senza distinguere maiuscole) in tutte le
+colonne, o nella colonna scelta accanto; <b>Pulisci</b> mostra di nuovo tutto.</li>
+<li>Fai clic sull'intestazione di una colonna per ordinare; di nuovo per l'ordine
+decrescente.</li>
+<li>« ‹ › » cambiano pagina; scegli da 50 a 1000 righe per pagina.</li>
+<li>Doppio clic su una riga (o <b>Dettagli della riga…</b>) mostra tutte le colonne per intero,
+con le liste JSON, come i canali di un bouquet, formattate.</li>
+<li>Ctrl+C copia le celle selezionate (separate da tabulazioni, pronte per un foglio di
+calcolo).</li>
+<li>Password, hash, token e chiavi appaiono come ••••••; spunta <b>Mostra password/chiavi</b> per
+vederli.</li>
+</ul>
+<p>La finestra è di sola lettura. Riga di comando: <code>view streams --dump file.sql --search
+sport --columns id,stream_display_name --order id</code> (<code>--json</code> per JSON).</p>
 
 <h2><a name="export"></a>Esporta / Backup</h2>
 <p>Esporta le tabelle selezionate in <b>JSON</b>, <b>CSV</b> o <b>SQL</b> (con

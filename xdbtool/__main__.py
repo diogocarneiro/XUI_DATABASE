@@ -10,6 +10,7 @@
     xui-db-tool maint  <args>   # check/repair/analyze/optimize (live MySQL)
     xui-db-tool check  <args>   # integrity check: broken links between tables
     xui-db-tool renumber <args> # renumber stream ids to 1..N (every reference too)
+    xui-db-tool view <table> <args>  # show rows: search, sort, paging
     xui-db-tool migrate <args>  # migrate between databases
     xui-db-tool xui-migrate <dump> <args>  # stage an old panel DB as `xui_migrate`
 
@@ -214,6 +215,50 @@ def cmd_renumber(args) -> int:
             print(f"Backup: {result['backup']}")
             print(f"Renumbered {len(plan.mapping)} stream(s): {result['statements']} "
                   f"statement(s), {result['changed']} row(s) changed.")
+    return 0
+
+
+CLI_MASK = "***"  # like export redaction; plain ASCII for any console
+
+
+def _cell(value, width: int, secret: bool) -> str:
+    from .core.source import cell_text
+
+    if value is None:
+        return "NULL"
+    if secret and value != "":
+        return CLI_MASK
+    text = " ".join(cell_text(value).split())
+    return text if len(text) <= width else text[:max(width - 1, 1)] + "…"
+
+
+def cmd_view(args) -> int:
+    import json
+
+    from .core.exporter import _json_default, is_secret_column
+
+    columns = [c.strip() for c in args.columns.split(",") if c.strip()] if args.columns else None
+    with _open_source(args) as src:
+        page = src.fetch_page(args.table, offset=args.offset, limit=args.limit,
+                              search=args.search or "", column=args.column, columns=columns,
+                              order_by=args.order, descending=args.desc)
+    secret = [not args.show_secrets and is_secret_column(c) for c in page.columns]
+    if args.json:
+        rows = [{c: (CLI_MASK if hide and v not in (None, "") else v)
+                 for c, v, hide in zip(page.columns, row, secret, strict=True)}
+                for row in page.rows]
+        print(json.dumps(rows, ensure_ascii=False, indent=2, default=_json_default))
+        return 0
+    cells = [[_cell(v, args.width, hide) for v, hide in zip(row, secret, strict=True)]
+             for row in page.rows]
+    widths = [max([len(c)] + [len(r[i]) for r in cells]) for i, c in enumerate(page.columns)]
+    print("  ".join(c.ljust(w) for c, w in zip(page.columns, widths, strict=True)).rstrip())
+    print("  ".join("-" * w for w in widths))
+    for r in cells:
+        print("  ".join(v.ljust(w) for v, w in zip(r, widths, strict=True)).rstrip())
+    first = page.offset + 1 if page.rows else 0
+    print(f"\nRows {first}-{page.offset + len(page.rows)} of {page.total}"
+          + (f" matching {args.search!r}" if args.search else ""))
     return 0
 
 
@@ -482,6 +527,22 @@ def build_parser() -> argparse.ArgumentParser:
     pn.add_argument("--backup-dir", default="backups",
                     help="Where --apply saves the backup (default: ./backups)")
     pn.set_defaults(func=cmd_renumber)
+
+    pv = sub.add_parser("view", help="Show rows of a table (search, sort, paging)")
+    _add_source_args(pv)
+    pv.add_argument("table")
+    pv.add_argument("--search", help="Keep rows containing this text (any column)")
+    pv.add_argument("--column", help="Search only this column")
+    pv.add_argument("--columns", help="Comma-separated columns to show (default: all)")
+    pv.add_argument("--order", metavar="COLUMN", help="Sort by this column")
+    pv.add_argument("--desc", action="store_true", help="Sort descending")
+    pv.add_argument("--limit", type=int, default=20)
+    pv.add_argument("--offset", type=int, default=0)
+    pv.add_argument("--width", type=int, default=40, help="Maximum column width")
+    pv.add_argument("--json", action="store_true", help="Print the rows as JSON")
+    pv.add_argument("--show-secrets", action="store_true",
+                    help="Show password/token/key columns (masked by default)")
+    pv.set_defaults(func=cmd_view)
 
     pg = sub.add_parser("migrate", help="Migrate rows into a target MySQL database")
     _add_source_args(pg)

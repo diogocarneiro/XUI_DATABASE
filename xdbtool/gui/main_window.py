@@ -66,6 +66,7 @@ from ..core.ssh_remote import SshConfig
 from ..core.templates import create_from_template, register_template
 from ..i18n import LANGUAGES, _, get_language, set_language
 from . import theme
+from .data_viewer import DataViewer
 from .help_dialog import AboutDialog, HelpDialog
 from .ssh_fields import SshFields
 from .workers import JobRunner
@@ -83,6 +84,7 @@ class MainWindow(QMainWindow):
         self.source: DataSource | None = None
         self.integrity_report: integrity.IntegrityReport | None = None
         self.renumber_plan: renumber.RenumberPlan | None = None
+        self.viewers: list[DataViewer] = []
         self.runner = JobRunner(self)
         self.update_runner = JobRunner(self)  # update checks never block real work
         self._build_ui()
@@ -371,9 +373,13 @@ class MainWindow(QMainWindow):
         all_btn.clicked.connect(lambda: self._set_all_checks(True))
         none_btn = QPushButton(_("None"))
         none_btn.clicked.connect(lambda: self._set_all_checks(False))
+        view_btn = QPushButton(_("View data…"))
+        view_btn.setToolTip(_("Browse the rows of the selected table (or double-click it)"))
+        view_btn.clicked.connect(lambda: self._open_viewer(self.table_widget.currentRow()))
         top.addWidget(self.filter_edit, 1)
         top.addWidget(all_btn)
         top.addWidget(none_btn)
+        top.addWidget(view_btn)
         v.addLayout(top)
 
         self.table_widget = QTableWidget(0, 4)
@@ -384,8 +390,31 @@ class MainWindow(QMainWindow):
         self.table_widget.setAlternatingRowColors(True)
         self.table_widget.setShowGrid(False)
         self.table_widget.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table_widget.cellDoubleClicked.connect(lambda row, _col: self._open_viewer(row))
         v.addWidget(self.table_widget)
         return box
+
+    def _open_viewer(self, row: int) -> None:
+        item = self.table_widget.item(row, 0) if row >= 0 else None
+        if self.source is None or item is None:
+            QMessageBox.information(self, _("View data"),
+                                    _("Connect a source and select a table first."))
+            return
+        viewer = DataViewer(self, self.source, item.text(), self._run_for_viewer)
+        self.viewers.append(viewer)
+        viewer.destroyed.connect(lambda _o=None, w=viewer: self.viewers.remove(w)
+                                 if w in self.viewers else None)
+        viewer.show()
+
+    def _run_for_viewer(self, job, on_done, on_error) -> bool:
+        """Viewer queries share the main runner: one query at a time per connection."""
+        return self.runner.start(lambda _progress, _message: job(),
+                                 on_finished=on_done, on_failed=on_error)
+
+    def _close_viewers(self) -> None:
+        for viewer in list(self.viewers):
+            viewer.close()
+        self.viewers.clear()
 
     def _build_actions_box(self) -> QWidget:
         tabs = QTabWidget()
@@ -1537,6 +1566,7 @@ class MainWindow(QMainWindow):
             self.export_dir.setText(path)
 
     def _connect_source(self) -> None:
+        self._close_viewers()  # they browse the source that is about to close
         if self.source is not None:
             try:
                 self.source.close()

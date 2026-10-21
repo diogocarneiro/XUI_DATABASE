@@ -29,6 +29,10 @@ MySQL/MariaDB connection or from an offline `mysqldump` `.sql` file.
   `SHOW CREATE TABLE` DDL). Optional redaction of password/secret-like columns.
 - **Repair / maintenance** — `CHECK`, `REPAIR`, `ANALYZE`, `OPTIMIZE`, plus a
   one-click *check-then-repair-only-broken* flow (live MySQL only).
+- **Data viewer** — browse any table's rows in a separate window: search (all
+  columns or one), sort by clicking a header, page through millions of rows (done in
+  SQL on live servers), full row details with readable JSON, copy cells;
+  passwords/tokens/keys masked until you ask. CLI: `view <table>`.
 - **Integrity check** — finds rows pointing at deleted streams, categories, bouquets,
   servers or lines (bouquet and line id lists included), repeated ids, duplicate
   usernames/MACs and streams without a server; fixes them in one transaction after
@@ -74,9 +78,9 @@ publishes one format per audience, all listed in `SHA256SUMS.txt`:
 ```bash
 # Linux server, e.g. the XUI host itself
 curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/latest/download/SHA256SUMS.txt
-curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.4.0/xui-db-tool-0.4.0-linux-x86_64
+curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.5.0/xui-db-tool-0.5.0-linux-x86_64
 sha256sum --check --ignore-missing SHA256SUMS.txt
-chmod +x xui-db-tool-0.4.0-linux-x86_64 && ./xui-db-tool-0.4.0-linux-x86_64 --help
+chmod +x xui-db-tool-0.5.0-linux-x86_64 && ./xui-db-tool-0.5.0-linux-x86_64 --help
 ```
 
 All three update themselves: *Ajuda → Procurar actualizações* in the app, or
@@ -123,6 +127,10 @@ python -m xdbtool maint --host 127.0.0.1 --user root --password secret \
 # Integrity check: list broken links; write the fix as SQL, or (live) back up and apply it
 python -m xdbtool check --dump backup.sql --fix-sql fix.sql
 python -m xdbtool check --host 127.0.0.1 --user root --password secret     --database xui --fix --backup-dir ./backups
+
+# Browse rows: search, sort, page (passwords masked unless --show-secrets)
+python -m xdbtool view streams --dump backup.sql --search sport \
+    --columns id,stream_display_name,category_id --order id --limit 50
 
 # Renumber stream ids to 1..N (preview, then SQL + file-rename scripts, or apply live)
 python -m xdbtool renumber --dump backup.sql --sql-out renumber.sql --files-script files.sh

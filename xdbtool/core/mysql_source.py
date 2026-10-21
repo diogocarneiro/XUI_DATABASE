@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from ..i18n import N_, _
 from .logger import get_logger
-from .source import ColumnInfo, DataSource, SourceError, TableInfo
+from .source import ColumnInfo, DataSource, Page, SourceError, TableInfo
 
 log = get_logger(__name__)
 
@@ -91,6 +91,11 @@ def _quote_ident(name: str) -> str:
     if "\x00" in name:
         raise SourceError(f"Invalid identifier: {name!r}")
     return "`" + name.replace("`", "``") + "`"
+
+
+def _escape_like(text: str) -> str:
+    """Make ``%``, ``_`` and ``\\`` match themselves inside a LIKE pattern."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class MySQLSource(DataSource):
@@ -267,6 +272,28 @@ class MySQLSource(DataSource):
                 yield from rows
         finally:
             cur.close()
+
+    def fetch_page(self, table: str, *, offset: int = 0, limit: int = 100, search: str = "",
+                   column: str | None = None, columns=None, order_by: str | None = None,
+                   descending: bool = False) -> Page:
+        every, shown = self._page_columns(table, columns, column, order_by)
+        t = _quote_ident(table)
+        where, args = "", []
+        if search:
+            pattern = "%" + _escape_like(search) + "%"
+            targets = [column] if column else every
+            where = " WHERE " + " OR ".join(
+                f"CAST({_quote_ident(c)} AS CHAR) LIKE %s" for c in targets)
+            args = [pattern] * len(targets)
+        order = (f" ORDER BY {_quote_ident(order_by)} {'DESC' if descending else 'ASC'}"
+                 if order_by else "")
+        with self._cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS c FROM {t}{where}", args)
+            total = int(cur.fetchone()["c"])
+            cur.execute(f"SELECT {', '.join(_quote_ident(c) for c in shown)} FROM {t}{where}"
+                        f"{order} LIMIT %s OFFSET %s", [*args, int(limit), int(offset)])
+            rows = [tuple(r[c] for c in shown) for r in cur.fetchall()]
+        return Page(shown, rows, total, offset)
 
     def run_transaction(self, statements, progress=None) -> int:
         """Run ``statements`` in one transaction (rolled back on error); returns rows changed."""

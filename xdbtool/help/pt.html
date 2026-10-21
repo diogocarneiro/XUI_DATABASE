@@ -3,7 +3,7 @@
 ZapX, Xtream Codes v2) que gerem bases de dados <b>suas ou que estão autorizados a gerir</b>.</p>
 <p><b>Índice:</b>
 <a href="#start">Começar</a> · <a href="#source">Origem dos dados</a> ·
-<a href="#ssh">Ligação por SSH</a> · <a href="#export">Exportar</a> ·
+<a href="#ssh">Ligação por SSH</a> · <a href="#viewer">Ver dados</a> · <a href="#export">Exportar</a> ·
 <a href="#maintenance">Manutenção</a> · <a href="#integrity">Integridade</a> · <a href="#renumber">Renumerar IDs</a> · <a href="#templates">Templates</a> ·
 <a href="#migrate">Migrar / Restaurar</a> · <a href="#xui-migrate">Migração para XUI</a> ·
 <a href="#xui-import">Importar backup XUI</a> · <a href="#safety">Segurança</a> ·
@@ -44,6 +44,28 @@ password <i>SSH</i>; deixa a password MySQL em branco.</li>
 exemplo o do <code>/home/xui/config/config.ini</code>.</li>
 </ul>
 <p>Os separadores Templates e Migrar / Restaurar têm a mesma escolha.</p>
+
+<h2><a name="viewer"></a>Ver dados</h2>
+<p>Faz duplo clique numa tabela da lista <b>Tabelas</b> (ou selecciona-a e clica em <b>Ver
+dados…</b>) para abrir as linhas numa janela à parte; podes ter várias tabelas abertas ao mesmo
+tempo. Funciona com bases de dados em directo e com dumps — numa ligação em directo a pesquisa,
+a ordenação e as páginas correm no servidor, por isso até tabelas com milhões de linhas abrem
+logo.</p>
+<ul>
+<li><b>Pesquisar</b> encontra as linhas que contêm o texto (sem distinguir maiúsculas) em todas
+as colunas, ou na coluna escolhida ao lado; <b>Limpar</b> volta a mostrar tudo.</li>
+<li>Clica no cabeçalho de uma coluna para ordenar por ela; clica outra vez para ordem
+decrescente.</li>
+<li>« ‹ › » mudam de página; escolhe de 50 a 1000 linhas por página.</li>
+<li>Duplo clique numa linha (ou <b>Detalhes da linha…</b>) mostra todas as colunas por inteiro,
+com as listas JSON, como os canais de um bouquet, formatadas para leitura.</li>
+<li>Ctrl+C copia as células seleccionadas (separadas por tabulações, prontas para uma folha de
+cálculo).</li>
+<li>Passwords, hashes, tokens e chaves aparecem como ••••••; marca <b>Mostrar passwords/chaves</b>
+para os ver.</li>
+</ul>
+<p>A janela é só de leitura. Linha de comandos: <code>view streams --dump ficheiro.sql --search
+sport --columns id,stream_display_name --order id</code> (<code>--json</code> para JSON).</p>
 
 <h2><a name="export"></a>Exportar / Backup</h2>
 <p>Exporta as tabelas marcadas em <b>JSON</b>, <b>CSV</b> ou <b>SQL</b> (com

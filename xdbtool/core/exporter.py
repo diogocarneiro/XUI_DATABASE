@@ -34,6 +34,19 @@ class ExportOptions:
     include_schema: bool = True
 
 
+SECRET_MASK = "••••••"
+_SECRET_NAMES = frozenset({"pass", "pwd", "key", "key_auth", "api_key", "apikey", "api_pass",
+                           "tmdb_api_key", "google_2fa_sec", "verify_key"})
+_SECRET_PARTS = ("password", "secret", "token")
+
+
+def is_secret_column(name: str) -> bool:
+    """True for columns holding passwords/hashes, tokens or keys (masked when shown)."""
+    low = name.lower()
+    return (low in _SECRET_NAMES or any(p in low for p in _SECRET_PARTS)
+            or low.endswith("_pass"))
+
+
 def _json_default(obj: object) -> object:
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()

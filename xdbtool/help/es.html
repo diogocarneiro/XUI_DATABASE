@@ -4,7 +4,7 @@ ZapX, Xtream Codes v2) que gestionan bases de datos <b>propias o que están auto
 gestionar</b>.</p>
 <p><b>Índice:</b>
 <a href="#start">Empezar</a> · <a href="#source">Origen de los datos</a> ·
-<a href="#ssh">Conexión SSH</a> · <a href="#export">Exportar</a> ·
+<a href="#ssh">Conexión SSH</a> · <a href="#viewer">Ver datos</a> · <a href="#export">Exportar</a> ·
 <a href="#maintenance">Mantenimiento</a> · <a href="#integrity">Integridad</a> · <a href="#renumber">Renumerar ids</a> · <a href="#templates">Plantillas</a> ·
 <a href="#migrate">Migrar / Restaurar</a> · <a href="#xui-migrate">Migración a XUI</a> ·
 <a href="#xui-import">Importar copia XUI</a> · <a href="#safety">Seguridad</a> ·
@@ -45,6 +45,29 @@ contraseña <i>SSH</i>; deja vacía la contraseña MySQL.</li>
 <code>/home/xui/config/config.ini</code>.</li>
 </ul>
 <p>Las pestañas Plantillas y Migrar / Restaurar ofrecen la misma elección.</p>
+
+<h2><a name="viewer"></a>Ver datos</h2>
+<p>Haz doble clic en una tabla de la lista <b>Tablas</b> (o selecciónala y pulsa <b>Ver
+datos…</b>) para abrir sus filas en una ventana aparte; puedes tener varias tablas abiertas a la
+vez. Funciona con bases de datos en vivo y con dumps — en vivo, la búsqueda, la ordenación y la
+paginación se hacen en el servidor, así que incluso tablas con millones de filas se abren al
+instante.</p>
+<ul>
+<li><b>Buscar</b> encuentra las filas que contienen el texto (sin distinguir mayúsculas) en todas
+las columnas, o en la columna elegida al lado; <b>Limpiar</b> vuelve a mostrar todo.</li>
+<li>Haz clic en el encabezado de una columna para ordenar; otro clic para orden
+descendente.</li>
+<li>« ‹ › » cambian de página; elige de 50 a 1000 filas por página.</li>
+<li>Doble clic en una fila (o <b>Detalles de la fila…</b>) muestra todas las columnas completas,
+con las listas JSON, como los canales de un bouquet, formateadas.</li>
+<li>Ctrl+C copia las celdas seleccionadas (separadas por tabuladores, listas para una hoja de
+cálculo).</li>
+<li>Contraseñas, hashes, tokens y claves se muestran como ••••••; marca <b>Mostrar
+contraseñas/claves</b> para verlos.</li>
+</ul>
+<p>La ventana es de solo lectura. Línea de comandos: <code>view streams --dump archivo.sql
+--search sport --columns id,stream_display_name --order id</code> (<code>--json</code> para
+JSON).</p>
 
 <h2><a name="export"></a>Exportar / Copia</h2>
 <p>Exporta las tablas marcadas en <b>JSON</b>, <b>CSV</b> o <b>SQL</b> (con

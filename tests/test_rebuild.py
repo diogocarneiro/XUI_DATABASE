@@ -25,7 +25,8 @@ from xdbtool.core.mysql_source import ConnectionConfig
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_xtream.sql"
 
 # A newer "panel version": users lost `notes` and gained two columns (one generated),
-# settings and bouquets ship default rows, `lines` is new and `streams` is gone.
+# settings and bouquets ship default rows, `streams_types` (default rows) and `lines` are
+# new and `streams` is gone. The `lines` row makes it a real panel's DB, not a clean install.
 TEMPLATE_SQL = """\
 CREATE DATABASE IF NOT EXISTS `panel_tmpl`;
 USE `panel_tmpl`;
@@ -56,6 +57,13 @@ CREATE TABLE IF NOT EXISTS `lines` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB;
+INSERT INTO `lines` (`id`) VALUES (77);
+CREATE TABLE IF NOT EXISTS `streams_types` (
+  `type_id` int(11) NOT NULL,
+  `type_name` varchar(32) DEFAULT NULL,
+  PRIMARY KEY (`type_id`)
+) ENGINE=InnoDB;
+INSERT INTO `streams_types` (`type_id`, `type_name`) VALUES (1, 'Live'), (2, 'Movie');
 """
 
 EMPTY_SETTINGS = FIXTURE.read_text(encoding="utf-8").replace(
@@ -95,7 +103,7 @@ def test_template_schema_skips_db_directives_and_generated_columns(tmpl):
     assert not any(s.upper().startswith(("USE", "CREATE DATABASE")) for s in schema.statements)
     assert schema.columns["users"] == ["id", "username", "password", "email", "is_admin",
                                        "member_group_id"]
-    assert schema.seeded == {"settings", "bouquets"}
+    assert schema.seeded == {"settings", "bouquets", "lines", "streams_types"}
 
 
 def test_plan_maps_columns_and_reports_tables(tmpl, src):
@@ -105,11 +113,29 @@ def test_plan_maps_columns_and_reports_tables(tmpl, src):
     assert rp.plan.missing_in_target == ["streams"]
     assert rp.rows == {"users": 3, "settings": 2}
     assert rp.replaced_defaults == ["settings"]
-    assert rp.kept_defaults == ["bouquets"]            # not chosen: template rows stay
-    assert rp.left_empty == ["lines"]
+    # Default: template rows only where the source has no such table, never panel data.
+    assert rp.kept_defaults == ["streams_types"]
+    assert rp.dropped_defaults == ["bouquets", "lines"]  # unticked / another panel's lines
+    assert rp.left_empty == ["bouquets", "lines"]
     text = "\n".join(rp.summary_lines())
     assert "1 source-only cols dropped" in text and "1 new cols get their defaults" in text
     assert "Not in the template (skipped): streams" in text
+    assert "WARNING: this template is not a clean installation" in text and "lines" in text
+    assert "Template rows kept (" in text and "Template rows left out: bouquets (" in text
+
+
+def test_template_rows_all_and_none(tmpl, src):
+    every = rebuild.build_rebuild(src, tmpl.key, ["users"], template_rows="all")
+    assert every.kept_defaults == ["bouquets", "lines", "settings", "streams_types"]
+    assert every.dropped_defaults == []
+    none = rebuild.build_rebuild(src, tmpl.key, ["users"], template_rows="none")
+    assert none.kept_defaults == []
+    assert none.dropped_defaults == ["bouquets", "lines", "settings", "streams_types"]
+    statements = rebuild._schema_statements(none)
+    assert not any(s.upper().startswith("INSERT") for s in statements)
+    assert sum(s.upper().startswith("CREATE TABLE") for s in statements) == 5
+    with pytest.raises(ValueError):
+        rebuild.build_rebuild(src, tmpl.key, ["users"], template_rows="some")
 
 
 def test_plan_rejects_unknown_or_no_tables(tmpl, src):
@@ -121,11 +147,13 @@ def test_plan_rejects_unknown_or_no_tables(tmpl, src):
         rebuild.build_rebuild(src, "missing-key", ["users"])
 
 
-def test_empty_source_table_keeps_template_defaults(tmpl, tmp_path):
+def test_empty_source_table(tmpl, tmp_path):
     dump = tmp_path / "empty_settings.sql"
     dump.write_text(EMPTY_SETTINGS, encoding="utf-8")
     with SqlDumpSource(dump) as s:
         rp = rebuild.build_rebuild(s, tmpl.key, ["settings"])
+        assert rp.replaced_defaults == [] and "settings" in rp.left_empty  # as in the source
+        rp = rebuild.build_rebuild(s, tmpl.key, ["settings"], template_rows="all")
         assert rp.replaced_defaults == [] and "settings" in rp.kept_defaults
         out = rebuild.write_rebuild_script(s, rp, tmp_path / "r.sql", database="newdb")
     rows = _inserted(_iter_statements(out.read_text(encoding="utf-8")))
@@ -142,7 +170,8 @@ def test_script_replaces_defaults_and_copies_rows_verbatim(tmpl, src, tmp_path):
     assert "panel_tmpl" not in text                    # template's own db name never used
     rows = _inserted(_iter_statements(text))
     assert [r["setting_value"] for r in rows["settings"]] == ["My Panel", "1.0"]
-    assert rows["bouquets"] == [{"id": 1, "bouquet_name": "Default"}]  # template default
+    assert "bouquets" not in rows and "lines" not in rows  # not ticked / panel data
+    assert [r["type_name"] for r in rows["streams_types"]] == ["Live", "Movie"]  # new table
     assert rows["users"][0] == {"id": 1, "username": "admin",
                                 "password": "$2y$10$abcdefghijklmnopqrstuv",  # hash as-is
                                 "email": "admin@example.com", "is_admin": 1}
@@ -158,7 +187,7 @@ def test_script_drop_existing(tmpl, src, tmp_path):
 
 def test_suggest_template(tmpl, src):
     meta, score = rebuild.suggest_template(src)
-    assert meta.key == tmpl.key and score == pytest.approx(0.6)  # 3 shared of 5 names
+    assert meta.key == tmpl.key and score == pytest.approx(0.5)  # 3 shared of 6 names
 
 
 class FakeTarget:
@@ -262,13 +291,15 @@ def test_portable_file_has_no_database_and_opens_again_as_a_source(tmpl, src, tm
                    for s in _iter_statements(text))
     assert "mysql -u root -p DATABASE < new.sql" in text
     with SqlDumpSource(out) as again:
-        assert again.list_tables() == ["bouquets", "lines", "settings", "users"]
+        assert again.list_tables() == ["bouquets", "lines", "settings", "streams_types",
+                                       "users"]
         users = list(again.iter_rows("users"))
         assert users[1] == {"id": 2, "username": "reseller_a",
                             "password": "$2y$10$0000000000000000000000",
                             "email": "a@example.com", "is_admin": 0}
         assert [r["setting_value"] for r in again.iter_rows("settings")] == ["My Panel", "1.0"]
-        assert again.row_count("bouquets") == 1  # template default kept
+        assert again.row_count("bouquets") == 0 and again.row_count("lines") == 0
+        assert again.row_count("streams_types") == 2  # template rows of a new table
 
 
 def test_run_command_with_database():

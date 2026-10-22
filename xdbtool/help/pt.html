@@ -191,11 +191,17 @@ lá dentro — importa-o em qualquer base vazia com o phpMyAdmin → <i>Importar
 <code>mysql -u root -p BASE &lt; ficheiro</code>. Também pode ser aberto de novo aqui como
 <i>Ficheiro de dump SQL</i>.</p>
 <p>As colunas correspondem pelo nome: as que só existem no dump são descartadas e as colunas
-novas do template ficam com o valor por omissão. Uma tabela marcada substitui as linhas por
-omissão do template (settings, grupos…); as não marcadas — e as marcadas que estão vazias no
-dump — mantêm-nas. As tabelas que o template não tem são ignoradas. As linhas são copiadas numa
-só transacção e os hashes das passwords são copiados tal como estão. A app recusa uma base que
-já tenha tabelas, a menos que <i>DROP</i> esteja marcado.</p>
+novas do template ficam com o valor por omissão. Uma tabela marcada recebe as linhas do dump;
+uma tabela que <b>não marcaste fica vazia</b>. <i>Linhas do próprio template</i> decide onde se
+usam as linhas do template: por omissão <b>só nas tabelas que o dump não tem</b> (novas nessa
+versão) e nunca linhas, streams ou logs de um template; <i>Em todas as tabelas que não vêm da
+origem</i> preenche também as não marcadas com as linhas do template; <i>Nenhuma</i> usa só o
+schema. A pré-visualização mostra o tamanho das linhas do template mantidas e deixadas de fora, e
+avisa quando um template não é uma instalação limpa (a base de um painel real, muitas vezes com
+centenas de MB). Por isso marca também as tabelas de configuração de que precisas (settings,
+grupos, pacotes, tipos de stream…). As tabelas que o template não tem são ignoradas. As linhas
+são copiadas numa só transacção e os hashes das passwords são copiados tal como estão. A app
+recusa uma base que já tenha tabelas, a menos que <i>DROP</i> esteja marcado.</p>
 
 <h2><a name="migrate"></a>Migrar / Restaurar</h2>
 <ul>

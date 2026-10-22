@@ -10,8 +10,10 @@ missing tables, broken indexes. This module instead:
   panel version wanted, with its default rows);
 * copies the rows of the tables the user picked from the source, matching columns
   by name: dump-only columns are dropped, template-only columns keep their defaults;
-* tables picked from the dump replace the template's default rows; the other
-  template tables keep their defaults (or stay empty);
+* tables picked from the dump replace the template's rows; ``template_rows``
+  decides which other tables keep the template's own rows: by default only the
+  tables the source does not have at all (new in the template's version), so a
+  template made from a real panel never brings its streams or logs along;
 * loads the data inside one transaction, or writes it all as a ``.sql`` script for
   ``mysql < file`` on the server.
 
@@ -32,16 +34,28 @@ from .dump_source import _CREATE_RE, _INSERT_RE, _iter_statements, _parse_column
 from .exporter import _sql_literal
 from .logger import get_logger
 from .migrator import MigrationPlan, TableMapping, build_plan
-from .mysql_source import _quote_ident
+from .mysql_source import PANEL_DATA_TABLES, _quote_ident
 from .source import DataSource
 from .templates import TemplateMeta, get_template, list_templates
+from .xui_import import LOG_TABLES as XUI_LOG_TABLES
 from .xui_import import SchemaSource
 from .xui_migrate import _DB_DIRECTIVE, _LOCKS, SESSION_PREAMBLE
+from .xui_migrate import LOG_TABLES as XC_LOG_TABLES
 
 log = get_logger(__name__)
 
 # Below this table-name similarity the dump is probably of another panel.
 LOW_MATCH = 0.5
+# Which tables keep the template's own rows when the source does not fill them:
+#   "missing" - only tables the source does not have (default);
+#   "all"     - every table not filled from the source;
+#   "none"    - none: the template gives the schema only.
+TEMPLATE_ROWS = ("missing", "all", "none")
+# Rows here mean the template is a real panel's database, not a clean install.
+DATA_TABLES = frozenset(PANEL_DATA_TABLES) | XUI_LOG_TABLES | XC_LOG_TABLES | {
+    "mag_devices", "enigma2_devices", "user_activity", "user_activity_now", "streams_sys",
+    "epg_data", "streams_episodes", "series_episodes", "streams_series", "series",
+}
 _GENERATED = re.compile(r"\bGENERATED\s+ALWAYS\b|\bAS\s*\(.*\)\s*(VIRTUAL|STORED|PERSISTENT)\b",
                         re.I)
 
@@ -56,7 +70,12 @@ class TemplateSchema:
 
     statements: list[str] = field(default_factory=list)
     columns: dict[str, list[str]] = field(default_factory=dict)
-    seeded: set[str] = field(default_factory=set)  # tables the template fills
+    seed_bytes: dict[str, int] = field(default_factory=dict)  # lower name -> INSERT size
+
+    @property
+    def seeded(self) -> set[str]:
+        """Lower-case names of the tables the template has rows for."""
+        return set(self.seed_bytes)
 
 
 def load_template_schema(meta: TemplateMeta) -> TemplateSchema:
@@ -82,11 +101,20 @@ def load_template_schema(meta: TemplateMeta) -> TemplateSchema:
         elif head.startswith("INSERT"):
             m = _INSERT_RE.match(s)
             if m:
-                out.seeded.add(m.group(1).lower())
+                low = m.group(1).lower()
+                out.seed_bytes[low] = out.seed_bytes.get(low, 0) + len(s)
         out.statements.append(s)
     if not out.columns:
         raise RebuildError(_("Template '{key}' has no CREATE TABLE statements.", key=meta.key))
     return out
+
+
+def _size(n: float) -> str:
+    if n < 1024:
+        return f"{n:.0f} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    return f"{n / 1024 / 1024:.1f} MB"
 
 
 @dataclass
@@ -96,32 +124,50 @@ class RebuildPlan:
     plan: MigrationPlan
     match: float = 0.0                                  # table-name similarity (Jaccard)
     rows: dict[str, int] = field(default_factory=dict)  # source rows per copied table
+    source_tables: set[str] = field(default_factory=set)  # lower names of every source table
+    template_rows: str = "missing"                      # see TEMPLATE_ROWS
 
     @property
     def copied(self) -> list[TableMapping]:
         return self.plan.transferable
 
+    def _name(self, low: str) -> str:
+        return next((t for t in self.schema.columns if t.lower() == low), low)
+
     @property
     def replaced_defaults(self) -> list[str]:
-        """Template tables with default rows that the source's rows replace.
-
-        A table that is empty in the source keeps the template's rows, so ticking
-        e.g. an empty ``settings`` never leaves the new panel without its defaults.
-        """
+        """Template tables with rows of their own that the source's rows replace."""
         return [m.table for m in self.copied
                 if m.table.lower() in self.schema.seeded and self.rows.get(m.table)]
 
     @property
     def kept_defaults(self) -> list[str]:
+        """Template tables whose own rows go into the new database."""
         replaced = {t.lower() for t in self.replaced_defaults}
-        return sorted(t for t in self.schema.columns
-                      if t.lower() in self.schema.seeded and t.lower() not in replaced)
+        return sorted(self._name(low) for low in self.schema.seeded - replaced
+                      if self.template_rows == "all"
+                      or (self.template_rows == "missing" and low not in self.source_tables
+                          and low not in DATA_TABLES))  # never another panel's data
+
+    @property
+    def dropped_defaults(self) -> list[str]:
+        """Template tables whose own rows are left out (neither kept nor replaced)."""
+        done = {t.lower() for t in (*self.replaced_defaults, *self.kept_defaults)}
+        return sorted(self._name(t) for t in self.schema.seeded - done)
 
     @property
     def left_empty(self) -> list[str]:
-        copied = {m.table.lower() for m in self.copied if self.rows.get(m.table)}
-        return sorted(t for t in self.schema.columns
-                      if t.lower() not in self.schema.seeded and t.lower() not in copied)
+        filled = {m.table.lower() for m in self.copied if self.rows.get(m.table)}
+        filled |= {t.lower() for t in self.kept_defaults}
+        return sorted(t for t in self.schema.columns if t.lower() not in filled)
+
+    @property
+    def template_bytes(self) -> int:
+        """Size of the template rows that go into the new database."""
+        return sum(self.schema.seed_bytes[t.lower()] for t in self.kept_defaults)
+
+    def _sized(self, tables: Iterable[str]) -> str:
+        return ", ".join(f"{t} ({_size(self.schema.seed_bytes[t.lower()])})" for t in tables)
 
     def summary_lines(self) -> list[str]:
         lines = [_("Template: {name} ({count} tables); the source matches it {score:.0%}.",
@@ -129,8 +175,15 @@ class RebuildPlan:
         if self.match < LOW_MATCH:
             lines.append(_("WARNING: the source has little in common with this template; "
                            "choose the template of the source's panel."))
+        data = sorted(self._name(t) for t in self.schema.seeded & DATA_TABLES)
+        if data:
+            size = sum(self.schema.seed_bytes[t.lower()] for t in data)
+            lines.append(_("WARNING: this template is not a clean installation - it holds a "
+                           "panel's data ({size} in {tables}). Register a clean install as "
+                           "template, or keep its rows out.", size=_size(size),
+                           tables=", ".join(data)))
         lines.append(_("Tables copied from the source: {count}", count=len(self.copied)))
-        seeded = set(self.replaced_defaults)
+        seeded, kept = set(self.replaced_defaults), set(self.kept_defaults)
         for m in self.copied:
             text = _("{table}: {count} rows", table=m.table, count=self.rows.get(m.table, 0))
             if m.source_only:
@@ -139,7 +192,7 @@ class RebuildPlan:
                 text += ", " + _("{count} new cols get their defaults", count=len(m.target_only))
             if m.table in seeded:
                 text += " " + _("(replaces the template's default rows)")
-            elif m.table.lower() in self.schema.seeded:
+            elif m.table in kept:
                 text += " " + _("(empty in the source: the template's default rows are kept)")
             lines.append("  " + text)
         not_copied = [m.table for m in self.plan.mappings if not m.transferable]
@@ -150,8 +203,11 @@ class RebuildPlan:
             lines.append(_("Not in the template (skipped): {tables}",
                            tables=", ".join(self.plan.missing_in_target)))
         if self.kept_defaults:
-            lines.append(_("Template default rows kept: {tables}",
-                           tables=", ".join(self.kept_defaults)))
+            lines.append(_("Template rows kept ({size}): {tables}", size=_size(
+                self.template_bytes), tables=self._sized(self.kept_defaults)))
+        if self.dropped_defaults:
+            lines.append(_("Template rows left out: {tables}",
+                           tables=self._sized(self.dropped_defaults)))
         if self.left_empty:
             lines.append(_("Left empty: {tables}", tables=", ".join(self.left_empty)))
         return lines
@@ -174,8 +230,15 @@ def suggest_template(source: DataSource) -> tuple[TemplateMeta | None, float]:
 
 
 def build_rebuild(source: DataSource, template_key: str,
-                  tables: Iterable[str] | None = None) -> RebuildPlan:
-    """Map the chosen source ``tables`` (default: all) onto the template's schema."""
+                  tables: Iterable[str] | None = None, *,
+                  template_rows: str = "missing") -> RebuildPlan:
+    """Map the chosen source ``tables`` (default: all) onto the template's schema.
+
+    ``template_rows`` (see :data:`TEMPLATE_ROWS`) picks the tables that keep the
+    template's own rows when the source does not fill them.
+    """
+    if template_rows not in TEMPLATE_ROWS:
+        raise ValueError(f"template_rows must be one of {TEMPLATE_ROWS}")
     meta = get_template(template_key)
     if meta is None:
         raise RebuildError(_("No such template: {key}", key=template_key))
@@ -191,7 +254,8 @@ def build_rebuild(source: DataSource, template_key: str,
     chosen = list(dict.fromkeys(by_lower[t.lower()] for t in wanted))
     plan = build_plan(source, SchemaSource(schema.columns), chosen)
     rp = RebuildPlan(template=meta, schema=schema, plan=plan,
-                     match=_jaccard(all_tables, schema.columns))
+                     match=_jaccard(all_tables, schema.columns),
+                     source_tables=set(by_lower), template_rows=template_rows)
     for m in plan.transferable:
         rp.rows[m.table] = source.row_count(by_lower[m.table.lower()])
     return rp
@@ -230,13 +294,13 @@ def _insert_batches(source: DataSource, m: TableMapping, batch_size: int
 
 
 def _schema_statements(rp: RebuildPlan) -> list[str]:
-    """The template's statements minus the default rows of tables taken from the source."""
-    replaced = {t.lower() for t in rp.replaced_defaults}
+    """The template's statements, with only the rows of the tables that keep them."""
+    kept = {t.lower() for t in rp.kept_defaults}
     out = []
     for s in rp.schema.statements:
         if s[:6].upper() == "INSERT":
             m = _INSERT_RE.match(s)
-            if m and m.group(1).lower() in replaced:
+            if m and m.group(1).lower() not in kept:
                 continue
         out.append(s)
     return out

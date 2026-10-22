@@ -192,11 +192,18 @@ dentro — impórtalo en cualquier base vacía con phpMyAdmin → <i>Importar</i
 <code>mysql -u root -p BASE &lt; archivo</code>. También se puede abrir de nuevo aquí como
 <i>Archivo de dump SQL</i>.</p>
 <p>Las columnas coinciden por nombre: las que solo existen en el dump se descartan y las
-columnas nuevas de la plantilla reciben su valor predeterminado. Una tabla marcada sustituye las
-filas predeterminadas de la plantilla (ajustes, grupos…); las no marcadas — y las marcadas que
-están vacías en el dump — las conservan. Las tablas que la plantilla no tiene se omiten. Las
-filas se copian en una sola transacción y los hashes de las contraseñas se copian tal cual. La
-app rechaza una base que ya tenga tablas, salvo que <i>DROP</i> esté marcado.</p>
+columnas nuevas de la plantilla reciben su valor predeterminado. Una tabla marcada recibe las
+filas del dump; una tabla <b>no marcada queda vacía</b>. <i>Filas propias de la plantilla</i>
+decide dónde se usan las filas de la plantilla: por defecto <b>solo en las tablas que el dump no
+tiene</b> (nuevas en esa versión) y nunca líneas, streams ni logs de una plantilla; <i>En todas
+las tablas que no vienen del origen</i> rellena también las no marcadas con las filas de la
+plantilla; <i>Ninguna</i> usa solo el esquema. La vista previa muestra el tamaño de las filas de
+la plantilla conservadas y omitidas, y avisa cuando una plantilla no es una instalación limpia
+(la base de un panel real, a menudo de cientos de MB). Por eso marca también las tablas de
+configuración que necesites (ajustes, grupos, paquetes, tipos de stream…). Las tablas que la
+plantilla no tiene se omiten. Las filas se copian en una sola transacción y los hashes de las
+contraseñas se copian tal cual. La app rechaza una base que ya tenga tablas, salvo que
+<i>DROP</i> esté marcado.</p>
 
 <h2><a name="migrate"></a>Migrar / Restaurar</h2>
 <ul>

@@ -180,10 +180,16 @@ name inside — import it into any empty database with phpMyAdmin → <i>Import<
 <code>mysql -u root -p DATABASE &lt; file</code>. It can also be opened again here as a
 <i>SQL dump file</i>.</p>
 <p>Columns are matched by name: columns only in the dump are dropped, new template columns get
-their default values. A ticked table replaces the template's default rows (settings, groups…);
-unticked tables — and ticked tables that are empty in the dump — keep them. Tables the template
-does not have are skipped. The rows are copied in one transaction; password hashes are copied
-as they are. The app refuses a database that already has tables unless <i>DROP</i> is ticked.</p>
+their default values. A ticked table gets the dump's rows; a table you <b>did not tick stays
+empty</b>. <i>Template's own rows</i> decides where the template's rows are used: by default
+<b>only in tables the dump does not have</b> (new in that version) and never a template's lines,
+streams or logs; <i>In every table not filled from the source</i> also fills unticked tables with
+the template's rows; <i>None</i> takes only the schema. The preview shows the size of the template
+rows kept and left out, and warns when a template is not a clean installation (a real panel's
+database, often hundreds of MB). So tick the configuration tables you need too (settings,
+groups, packages, stream types…). Tables the template does not have are skipped. The rows are
+copied in one transaction; password hashes are copied as they are. The app refuses a database
+that already has tables unless <i>DROP</i> is ticked.</p>
 
 <h2><a name="migrate"></a>Migrate / Restore</h2>
 <ul>

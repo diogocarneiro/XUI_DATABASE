@@ -165,7 +165,8 @@ def cmd_rebuild(args) -> int:
                 print(f"Template: {key} (closest match, {score:.0%}; choose with --template)")
             exclude = {t.lower() for t in args.exclude or ()}
             tables = [t for t in (args.tables or src.list_tables()) if t.lower() not in exclude]
-            plan = rebuild.build_rebuild(src, key, tables)
+            plan = rebuild.build_rebuild(src, key, tables,
+                                         template_rows=args.template_rows)
             print(f"Source : {src.label}")
             for line in plan.summary_lines():
                 print(f"  {line}")
@@ -755,6 +756,11 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--template", help="Template key (default: the closest registered one)")
     pb.add_argument("--tables", nargs="*", help="Tables to copy (default: all)")
     pb.add_argument("--exclude", nargs="*", help="Tables not to copy (e.g. log tables)")
+    pb.add_argument("--template-rows", choices=["missing", "all", "none"], default="missing",
+                    help="Which tables keep the template's own rows when not filled from "
+                         "the source: missing = only tables the source does not have "
+                         "(default; never panel data/logs), all = every one, "
+                         "none = schema only")
     pb.add_argument("--plan-only", action="store_true", help="Show the plan and stop")
     pb.add_argument("--sql-out", metavar="FILE",
                     help="Save the rebuilt database as a local .sql/.sql.gz file instead; "

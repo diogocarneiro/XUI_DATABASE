@@ -202,11 +202,17 @@ de base — importez-le dans n'importe quelle base vide avec phpMyAdmin → <i>I
 <i>Fichier de dump SQL</i>.</p>
 <p>Les colonnes correspondent par leur nom : celles présentes seulement dans le dump sont
 ignorées, les nouvelles colonnes du modèle reçoivent leur valeur par défaut. Une table cochée
-remplace les lignes par défaut du modèle (paramètres, groupes…) ; les tables non cochées — et
-les tables cochées vides dans le dump — les conservent. Les tables absentes du modèle sont
-ignorées. Les lignes sont copiées en une seule transaction ; les hachages des mots de passe sont
-copiés tels quels. L'application refuse une base qui contient déjà des tables, sauf si
-<i>DROP</i> est coché.</p>
+reçoit les lignes du dump ; une table <b>non cochée reste vide</b>. <i>Lignes propres au
+modèle</i> décide où les lignes du modèle sont utilisées : par défaut <b>seulement dans les
+tables absentes du dump</b> (nouvelles dans cette version), et jamais les lignes, flux ou
+journaux d'un modèle ; <i>Dans toutes les tables non remplies depuis la source</i> remplit aussi
+les tables non cochées avec les lignes du modèle ; <i>Aucune</i> ne prend que le schéma. L'aperçu
+indique la taille des lignes du modèle conservées et laissées de côté, et avertit quand un modèle
+n'est pas une installation propre (la base d'un vrai panneau, souvent des centaines de Mo).
+Cochez donc aussi les tables de configuration nécessaires (paramètres, groupes, offres, types de
+flux…). Les tables absentes du modèle sont ignorées. Les lignes sont copiées en une seule
+transaction ; les hachages des mots de passe sont copiés tels quels. L'application refuse une
+base qui contient déjà des tables, sauf si <i>DROP</i> est coché.</p>
 
 <h2><a name="migrate"></a>Migrer / Restaurer</h2>
 <ul>

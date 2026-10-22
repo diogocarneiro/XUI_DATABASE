@@ -798,11 +798,21 @@ class MainWindow(QMainWindow):
         form.addRow(QLabel(_("<b>Rebuild from the loaded source</b>")))
         intro = QLabel(_(
             "Creates the new database from the template above and copies into it the rows of "
-            "the tables <b>ticked on the left</b>, matching columns by name. Ticked tables "
-            "replace the template's default rows; the other tables keep them. Create it on the "
-            "target server, or save it as a local <code>.sql</code> file."))
+            "the tables <b>ticked on the left</b>, matching columns by name; tables not ticked "
+            "stay empty (see <i>Template's own rows</i>). Create it on the target server, or "
+            "save it as a local <code>.sql</code> file."))
         intro.setWordWrap(True)
         form.addRow(intro)
+        self.t_rows = QComboBox()
+        self.t_rows.addItem(_("Only in tables the source does not have (recommended)"),
+                            "missing")
+        self.t_rows.addItem(_("In every table not filled from the source"), "all")
+        self.t_rows.addItem(_("None — the template gives the schema only"), "none")
+        self.t_rows.setToolTip(_(
+            "Tables not ticked stay empty unless the template's own rows are kept here. "
+            "The recommended choice only fills tables your source lacks (new in this "
+            "version) and never copies a template's lines, streams or logs."))
+        form.addRow(_("Template's own rows:"), self.t_rows)
         preview_btn = QPushButton(_("Preview rebuild"))
         preview_btn.clicked.connect(self._do_rebuild_preview)
         rebuild_btn = self._role(QPushButton(_("Rebuild → create the new database")), "danger")
@@ -832,8 +842,8 @@ class MainWindow(QMainWindow):
         if index >= 0:
             self.tmpl_combo.setCurrentIndex(index)
 
-    def _rebuild_inputs(self, need_db: bool = True) -> tuple[str, list[str], str] | None:
-        """(template key, ticked tables, new database name), or None after a warning."""
+    def _rebuild_inputs(self, need_db: bool = True) -> tuple[str, list[str], str, str] | None:
+        """(template key, ticked tables, new DB name, template-rows mode), or None."""
         if self._busy_guard():
             return None
         key = self.tmpl_combo.currentData()
@@ -849,12 +859,12 @@ class MainWindow(QMainWindow):
         if need_db and not db_name:
             QMessageBox.warning(self, _("No name"), _("Enter a name for the new database."))
             return None
-        return key, tables, db_name
+        return key, tables, db_name, self.t_rows.currentData()
 
-    def _plan_rebuild(self, src, key, tables, message):
+    def _plan_rebuild(self, src, key, tables, rows_mode, message):
         message(_("Planning the rebuild of {label} on template '{key}'…", label=src.label,
                   key=key))
-        plan = rebuild.build_rebuild(src, key, tables)
+        plan = rebuild.build_rebuild(src, key, tables, template_rows=rows_mode)
         for line in plan.summary_lines():
             message("  " + line)
         return plan
@@ -863,16 +873,17 @@ class MainWindow(QMainWindow):
         inputs = self._rebuild_inputs(need_db=False)
         if inputs is None:
             return
-        key, tables, _db = inputs
+        key, tables, _db, mode = inputs
         src = self.source
-        self._start(lambda _progress, message: self._plan_rebuild(src, key, tables, message),
+        self._start(lambda _progress, message: self._plan_rebuild(src, key, tables, mode,
+                                                                  message),
                     done_msg=_("Rebuild plan ready (see log)."))
 
     def _save_rebuild_script(self) -> None:
         inputs = self._rebuild_inputs(need_db=False)  # a file needs no server or name
         if inputs is None:
             return
-        key, tables, db_name = inputs
+        key, tables, db_name, mode = inputs
         default = Path(self.export_dir.text()) / f"{db_name or key}.sql"
         path, _sel = QFileDialog.getSaveFileName(
             self, _("Save the rebuilt database"), str(default),
@@ -882,7 +893,7 @@ class MainWindow(QMainWindow):
         src, drop = self.source, self.t_drop.isChecked()
 
         def job(progress, message):
-            plan = self._plan_rebuild(src, key, tables, message)
+            plan = self._plan_rebuild(src, key, tables, mode, message)
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             return rebuild.write_rebuild_script(src, plan, path, database=db_name,
                                                 drop_existing=drop, progress=progress)
@@ -903,7 +914,7 @@ class MainWindow(QMainWindow):
         inputs = self._rebuild_inputs()
         if inputs is None:
             return
-        key, tables, db_name = inputs
+        key, tables, db_name, mode = inputs
         try:
             ssh = self.t_ssh.config()
         except ValueError as exc:
@@ -926,7 +937,7 @@ class MainWindow(QMainWindow):
 
         def run(allow_drop_panel: bool) -> None:
             def job(progress, message):
-                plan = self._plan_rebuild(src, key, tables, message)
+                plan = self._plan_rebuild(src, key, tables, mode, message)
                 try:
                     return rebuild.rebuild_live(cfg, src, plan, db_name, drop_existing=drop,
                                                 allow_drop_panel=allow_drop_panel,

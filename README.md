@@ -85,9 +85,9 @@ publishes one format per audience, all listed in `SHA256SUMS.txt`:
 ```bash
 # Linux server, e.g. the XUI host itself
 curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/latest/download/SHA256SUMS.txt
-curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.8.0/xui-db-tool-0.8.0-linux-x86_64
+curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.9.0/xui-db-tool-0.9.0-linux-x86_64
 sha256sum --check --ignore-missing SHA256SUMS.txt
-chmod +x xui-db-tool-0.8.0-linux-x86_64 && ./xui-db-tool-0.8.0-linux-x86_64 --help
+chmod +x xui-db-tool-0.9.0-linux-x86_64 && ./xui-db-tool-0.9.0-linux-x86_64 --help
 ```
 
 All three update themselves: *Ajuda → Procurar actualizações* in the app, or
@@ -209,9 +209,12 @@ python -m xdbtool migrate   --dump old_backup.sql    --target-host H --target-us
 
 The new database gets the template's clean schema and the **data** of the tables you
 choose. Columns are matched by name (dump-only columns are dropped, new template columns
-get their defaults); tables taken from the dump replace the template's default rows,
-the others keep them. In the GUI: load the dump, tick the tables, then **Templates /
-New DB → Rebuild from the loaded source**.
+get their defaults); tables you do not tick stay empty. The template's own rows are used
+only in tables the dump does not have (`--template-rows missing`, the default — never a
+template's lines/streams/logs), in every unfilled table (`all`) or nowhere (`none`); the
+plan shows their size and warns when a template is a real panel's database rather than a
+clean install. In the GUI: load the dump, tick the tables, then **Templates / New DB →
+Rebuild from the loaded source**.
 
 ```bash
 # See what would happen (template defaults to the closest registered one)

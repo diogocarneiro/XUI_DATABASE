@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-22
+### Fixed
+- **Rebuild: tables you did not tick no longer bring the template's rows.** A template
+  registered from a real panel's database (e.g. `xui-1.5.5`, 174 MB) filled every
+  unticked table with that panel's streams, devices and logs, so a 16 MB dump became a
+  166 MB database. Now an unticked table stays empty, and a ticked table that is empty
+  in the dump stays empty too. Same 7 tables from `xui-1.5.5`: 174.5 MB → 7.4 MB.
+
+### Added
+- *Linhas do próprio template* (Templates / Nova BD; CLI `rebuild --template-rows`):
+  *Só nas tabelas que a origem não tem* (`missing`, default — fills only tables new in
+  the template's version, never a template's lines/streams/logs), *Em todas as tabelas
+  que não vêm da origem* (`all`, the previous behaviour) or *Nenhuma* (`none`, schema
+  only).
+- The rebuild preview shows the size of the template rows kept and left out, and warns
+  when the template is not a clean installation (holds a panel's data).
+- User guide: *Reconstruir uma base de dados a partir de um dump* explains the choice.
+
 ## [0.8.0] - 2026-10-22
 ### Added
 - **Save the rebuilt database as a local file** — *Guardar como ficheiro .sql local…*

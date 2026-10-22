@@ -192,11 +192,18 @@ database — importalo in qualsiasi database vuoto con phpMyAdmin → <i>Importa
 <code>mysql -u root -p DATABASE &lt; file</code>. Può anche essere riaperto qui come
 <i>File di dump SQL</i>.</p>
 <p>Le colonne corrispondono per nome: quelle presenti solo nel dump vengono scartate, le nuove
-colonne del modello ricevono il valore predefinito. Una tabella selezionata sostituisce le righe
-predefinite del modello (impostazioni, gruppi…); quelle non selezionate — e quelle selezionate
-ma vuote nel dump — le mantengono. Le tabelle che il modello non ha vengono ignorate. Le righe
-sono copiate in un'unica transazione; gli hash delle password sono copiati così come sono. L'app
-rifiuta un database che contiene già tabelle, a meno che <i>DROP</i> sia selezionato.</p>
+colonne del modello ricevono il valore predefinito. Una tabella selezionata riceve le righe del
+dump; una tabella <b>non selezionata resta vuota</b>. <i>Righe proprie del modello</i> decide
+dove usare le righe del modello: per impostazione predefinita <b>solo nelle tabelle che il dump
+non ha</b> (nuove in quella versione) e mai linee, stream o log di un modello; <i>In tutte le
+tabelle non riempite dall'origine</i> riempie anche quelle non selezionate con le righe del
+modello; <i>Nessuna</i> usa solo lo schema. L'anteprima mostra la dimensione delle righe del
+modello mantenute ed escluse, e avvisa quando un modello non è un'installazione pulita (il
+database di un pannello reale, spesso di centinaia di MB). Seleziona quindi anche le tabelle di
+configurazione che ti servono (impostazioni, gruppi, pacchetti, tipi di stream…). Le tabelle che
+il modello non ha vengono ignorate. Le righe sono copiate in un'unica transazione; gli hash delle
+password sono copiati così come sono. L'app rifiuta un database che contiene già tabelle, a meno
+che <i>DROP</i> sia selezionato.</p>
 
 <h2><a name="migrate"></a>Migra / Ripristina</h2>
 <ul>

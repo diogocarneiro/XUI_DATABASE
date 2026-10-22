@@ -799,15 +799,19 @@ class MainWindow(QMainWindow):
         intro = QLabel(_(
             "Creates the new database from the template above and copies into it the rows of "
             "the tables <b>ticked on the left</b>, matching columns by name. Ticked tables "
-            "replace the template's default rows; the other tables keep them."))
+            "replace the template's default rows; the other tables keep them. Create it on the "
+            "target server, or save it as a local <code>.sql</code> file."))
         intro.setWordWrap(True)
         form.addRow(intro)
         preview_btn = QPushButton(_("Preview rebuild"))
         preview_btn.clicked.connect(self._do_rebuild_preview)
         rebuild_btn = self._role(QPushButton(_("Rebuild → create the new database")), "danger")
         rebuild_btn.clicked.connect(self._do_rebuild)
-        script_btn = QPushButton(_("Save rebuild script…"))
-        script_btn.setToolTip(_("A .sql script to run on the server: mysql -u root -p < file"))
+        script_btn = self._role(QPushButton(_("Save as local .sql file…")), "primary")
+        script_btn.setToolTip(_(
+            "Saves the rebuilt database to a .sql (or .sql.gz) file on this computer; no "
+            "server needed. With a new database name the file creates that database; left "
+            "blank, it can be imported into any empty database."))
         script_btn.clicked.connect(self._save_rebuild_script)
         btns = QHBoxLayout()
         btns.addWidget(preview_btn)
@@ -865,25 +869,33 @@ class MainWindow(QMainWindow):
                     done_msg=_("Rebuild plan ready (see log)."))
 
     def _save_rebuild_script(self) -> None:
-        inputs = self._rebuild_inputs()
+        inputs = self._rebuild_inputs(need_db=False)  # a file needs no server or name
         if inputs is None:
             return
         key, tables, db_name = inputs
-        path, _sel = QFileDialog.getSaveFileName(self, _("Save rebuild script"),
-                                                 f"rebuild-{db_name}.sql", SQL_FILTER)
+        default = Path(self.export_dir.text()) / f"{db_name or key}.sql"
+        path, _sel = QFileDialog.getSaveFileName(
+            self, _("Save the rebuilt database"), str(default),
+            "SQL (*.sql);;" + _("SQL, gzip-compressed") + " (*.sql.gz);;*.*")
         if not path:
             return
         src, drop = self.source, self.t_drop.isChecked()
 
         def job(progress, message):
             plan = self._plan_rebuild(src, key, tables, message)
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
             return rebuild.write_rebuild_script(src, plan, path, database=db_name,
                                                 drop_existing=drop, progress=progress)
 
         def done(out):
             self.progress.setValue(100)
-            self._log(_("Rebuild script saved: {path} — on the server run: {command}",
-                        path=out, command=rebuild.run_command(out)))
+            if db_name:
+                self._log(_("Rebuilt database saved: {path} — on the server run: {command}",
+                            path=out, command=rebuild.run_command(out)))
+            else:
+                self._log(_("Rebuilt database saved: {path} — import it into an empty database "
+                            "(phpMyAdmin → Import, Migrate / Restore, or {command}).",
+                            path=out, command=rebuild.run_command(out, "DATABASE")))
 
         self._start_custom(job, done)
 

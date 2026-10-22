@@ -85,9 +85,9 @@ publishes one format per audience, all listed in `SHA256SUMS.txt`:
 ```bash
 # Linux server, e.g. the XUI host itself
 curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/latest/download/SHA256SUMS.txt
-curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.7.0/xui-db-tool-0.7.0-linux-x86_64
+curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.8.0/xui-db-tool-0.8.0-linux-x86_64
 sha256sum --check --ignore-missing SHA256SUMS.txt
-chmod +x xui-db-tool-0.7.0-linux-x86_64 && ./xui-db-tool-0.7.0-linux-x86_64 --help
+chmod +x xui-db-tool-0.8.0-linux-x86_64 && ./xui-db-tool-0.8.0-linux-x86_64 --help
 ```
 
 All three update themselves: *Ajuda → Procurar actualizações* in the app, or
@@ -223,10 +223,17 @@ python -m xdbtool rebuild --dump old_backup.sql --template xui_one-1.5.13 \
     --target-host 127.0.0.1 --target-user root --target-password secret \
     --target-database xui_new
 
-# ...or write a script to run on the server: gunzip -c rebuild.sql.gz | mysql -u root -p
-python -m xdbtool rebuild --dump old_backup.sql --sql-out rebuild.sql.gz \
+# ...or save it as a local file: with --target-database the file creates that DB
+# (gunzip -c xui_new.sql.gz | mysql -u root -p) ...
+python -m xdbtool rebuild --dump old_backup.sql --sql-out xui_new.sql.gz \
     --target-database xui_new
+# ... without it, a portable dump: import into any empty DB (phpMyAdmin, `restore`,
+# mysql -u root -p DATABASE < new_panel.sql) or open it again with --dump
+python -m xdbtool rebuild --dump old_backup.sql --sql-out new_panel.sql
 ```
+
+In the GUI, **Save as local .sql file…** does the same — no server needed; leave
+*New database* blank for the portable dump.
 
 ### Inject directly into a server
 

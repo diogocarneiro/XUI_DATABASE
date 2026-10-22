@@ -182,9 +182,15 @@ scelte.</p>
 nuovo database.</li>
 <li><b>Anteprima ricostruzione</b> mostra nel log cosa succede a ogni tabella.</li>
 <li><b>Ricostruisci → crea il nuovo database</b> lo crea sul server di destinazione, oppure
-<b>Salva script di ricostruzione…</b> scrive un <code>.sql</code> da eseguire sul server con
-<code>mysql -u root -p &lt; file</code>.</li>
+<b>Salva come file .sql locale…</b> salva l'intero nuovo database in un file su questo computer
+(<code>.sql</code>, o <code>.sql.gz</code> compresso) — non serve un server.</li>
 </ol>
+<p>Il file locale: con un nome in <i>Nuovo database</i> crea da sé quel database
+(<code>mysql -u root -p &lt; file</code>); lasciato vuoto, è un dump portabile senza nome di
+database — importalo in qualsiasi database vuoto con phpMyAdmin → <i>Importa</i>, con
+<i>Migra / Ripristina</i> (seleziona <i>Crea prima il database di destinazione</i>) o con
+<code>mysql -u root -p DATABASE &lt; file</code>. Può anche essere riaperto qui come
+<i>File di dump SQL</i>.</p>
 <p>Le colonne corrispondono per nome: quelle presenti solo nel dump vengono scartate, le nuove
 colonne del modello ricevono il valore predefinito. Una tabella selezionata sostituisce le righe
 predefinite del modello (impostazioni, gruppi…); quelle non selezionate — e quelle selezionate

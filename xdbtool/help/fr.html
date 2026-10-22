@@ -190,9 +190,16 @@ choisies.</p>
 de la nouvelle base.</li>
 <li><b>Aperçu de la reconstruction</b> indique dans le journal ce qui arrive à chaque table.</li>
 <li><b>Reconstruire → créer la nouvelle base de données</b> la crée sur le serveur cible, ou
-<b>Enregistrer le script de reconstruction…</b> écrit un <code>.sql</code> à exécuter sur le
-serveur avec <code>mysql -u root -p &lt; fichier</code>.</li>
+<b>Enregistrer comme fichier .sql local…</b> enregistre toute la nouvelle base dans un fichier sur
+cet ordinateur (<code>.sql</code>, ou <code>.sql.gz</code> compressé) — aucun serveur
+nécessaire.</li>
 </ol>
+<p>Le fichier local : avec un nom dans <i>Nouvelle base de données</i>, il crée lui-même cette
+base (<code>mysql -u root -p &lt; fichier</code>) ; laissé vide, c'est un dump portable sans nom
+de base — importez-le dans n'importe quelle base vide avec phpMyAdmin → <i>Importer</i>, avec
+<i>Migrer / Restaurer</i> (cochez <i>Créer d'abord la base de données cible</i>) ou avec
+<code>mysql -u root -p BASE &lt; fichier</code>. Il peut aussi être rouvert ici comme
+<i>Fichier de dump SQL</i>.</p>
 <p>Les colonnes correspondent par leur nom : celles présentes seulement dans le dump sont
 ignorées, les nouvelles colonnes du modèle reçoivent leur valeur par défaut. Une table cochée
 remplace les lignes par défaut du modèle (paramètres, groupes…) ; les tables non cochées — et

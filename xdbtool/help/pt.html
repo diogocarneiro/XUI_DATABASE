@@ -181,9 +181,15 @@ recebe o <b>schema limpo do template</b> e só os <b>dados</b> das tabelas que e
 da nova base.</li>
 <li><b>Pré-visualizar reconstrução</b> mostra no log o que acontece a cada tabela.</li>
 <li><b>Reconstruir → criar a nova base de dados</b> cria-a no servidor de destino, ou
-<b>Guardar script de reconstrução…</b> grava um <code>.sql</code> para correr no servidor com
-<code>mysql -u root -p &lt; ficheiro</code>.</li>
+<b>Guardar como ficheiro .sql local…</b> grava a nova base inteira num ficheiro neste computador
+(<code>.sql</code>, ou <code>.sql.gz</code> comprimido) — não precisa de servidor.</li>
 </ol>
+<p>O ficheiro local: com o nome em <i>Nova base de dados</i> cria ele próprio essa base
+(<code>mysql -u root -p &lt; ficheiro</code>); em branco, é um dump portátil sem nome de base
+lá dentro — importa-o em qualquer base vazia com o phpMyAdmin → <i>Importar</i>, com
+<i>Migrar / Restaurar</i> (marca <i>Criar primeiro a base de dados de destino</i>) ou com
+<code>mysql -u root -p BASE &lt; ficheiro</code>. Também pode ser aberto de novo aqui como
+<i>Ficheiro de dump SQL</i>.</p>
 <p>As colunas correspondem pelo nome: as que só existem no dump são descartadas e as colunas
 novas do template ficam com o valor por omissão. Uma tabela marcada substitui as linhas por
 omissão do template (settings, grupos…); as não marcadas — e as marcadas que estão vazias no

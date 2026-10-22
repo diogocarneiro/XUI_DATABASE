@@ -252,3 +252,26 @@ def test_live_failure_keeps_no_rows(tmpl, src, fake):
 def test_run_command_handles_gzip():
     assert rebuild.run_command("/tmp/r.sql") == "mysql -u root -p < r.sql"
     assert rebuild.run_command("r.sql.gz") == "gunzip -c r.sql.gz | mysql -u root -p"
+
+
+def test_portable_file_has_no_database_and_opens_again_as_a_source(tmpl, src, tmp_path):
+    rp = rebuild.build_rebuild(src, tmpl.key, ["users", "settings"])
+    out = rebuild.write_rebuild_script(src, rp, tmp_path / "new.sql", drop_existing=True)
+    text = out.read_text(encoding="utf-8")
+    assert not any(s.strip().upper().startswith(("USE", "CREATE DATABASE", "DROP DATABASE"))
+                   for s in _iter_statements(text))
+    assert "mysql -u root -p DATABASE < new.sql" in text
+    with SqlDumpSource(out) as again:
+        assert again.list_tables() == ["bouquets", "lines", "settings", "users"]
+        users = list(again.iter_rows("users"))
+        assert users[1] == {"id": 2, "username": "reseller_a",
+                            "password": "$2y$10$0000000000000000000000",
+                            "email": "a@example.com", "is_admin": 0}
+        assert [r["setting_value"] for r in again.iter_rows("settings")] == ["My Panel", "1.0"]
+        assert again.row_count("bouquets") == 1  # template default kept
+
+
+def test_run_command_with_database():
+    assert rebuild.run_command("r.sql", "xui_new") == "mysql -u root -p xui_new < r.sql"
+    assert (rebuild.run_command("r.sql.gz", "DATABASE")
+            == "gunzip -c r.sql.gz | mysql -u root -p DATABASE")

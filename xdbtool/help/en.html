@@ -170,9 +170,15 @@ gets the <b>clean schema of the template</b> and only the <b>data</b> of the tab
 the new database.</li>
 <li><b>Preview rebuild</b> lists, in the log, what happens to each table.</li>
 <li><b>Rebuild → create the new database</b> creates it on the target server, or
-<b>Save rebuild script…</b> writes a <code>.sql</code> to run on the server with
-<code>mysql -u root -p &lt; file</code>.</li>
+<b>Save as local .sql file…</b> saves the whole new database to a file on this computer
+(<code>.sql</code>, or <code>.sql.gz</code> compressed) — no server needed.</li>
 </ol>
+<p>The local file: with a <i>New database</i> name it creates that database itself
+(<code>mysql -u root -p &lt; file</code>); left blank, it is a portable dump with no database
+name inside — import it into any empty database with phpMyAdmin → <i>Import</i>, with
+<i>Migrate / Restore</i> (tick <i>Create the target database first</i>) or with
+<code>mysql -u root -p DATABASE &lt; file</code>. It can also be opened again here as a
+<i>SQL dump file</i>.</p>
 <p>Columns are matched by name: columns only in the dump are dropped, new template columns get
 their default values. A ticked table replaces the template's default rows (settings, groups…);
 unticked tables — and ticked tables that are empty in the dump — keep them. Tables the template

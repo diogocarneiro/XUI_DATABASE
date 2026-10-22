@@ -182,9 +182,15 @@ elijas.</p>
 la nueva base.</li>
 <li><b>Vista previa de la reconstrucción</b> muestra en el registro qué pasa con cada tabla.</li>
 <li><b>Reconstruir → crear la nueva base de datos</b> la crea en el servidor de destino, o
-<b>Guardar script de reconstrucción…</b> escribe un <code>.sql</code> para ejecutar en el
-servidor con <code>mysql -u root -p &lt; archivo</code>.</li>
+<b>Guardar como archivo .sql local…</b> guarda toda la nueva base en un archivo en este equipo
+(<code>.sql</code>, o <code>.sql.gz</code> comprimido) — no necesita servidor.</li>
 </ol>
+<p>El archivo local: con un nombre en <i>Nueva base de datos</i> crea él mismo esa base
+(<code>mysql -u root -p &lt; archivo</code>); en blanco, es un dump portátil sin nombre de base
+dentro — impórtalo en cualquier base vacía con phpMyAdmin → <i>Importar</i>, con
+<i>Migrar / Restaurar</i> (marca <i>Crear primero la base de datos de destino</i>) o con
+<code>mysql -u root -p BASE &lt; archivo</code>. También se puede abrir de nuevo aquí como
+<i>Archivo de dump SQL</i>.</p>
 <p>Las columnas coinciden por nombre: las que solo existen en el dump se descartan y las
 columnas nuevas de la plantilla reciben su valor predeterminado. Una tabla marcada sustituye las
 filas predeterminadas de la plantilla (ajustes, grupos…); las no marcadas — y las marcadas que

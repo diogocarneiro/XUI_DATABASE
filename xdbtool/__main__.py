@@ -148,7 +148,8 @@ def cmd_rebuild(args) -> int:
         print("--target-host or --sql-out is required unless --plan-only is used.",
               file=sys.stderr)
         return 2
-    if not args.plan_only and not args.target_database:
+    live = args.target_host and not (args.sql_out or args.plan_only)
+    if live and not args.target_database:
         print("--target-database (the new database's name) is required.", file=sys.stderr)
         return 2
     try:
@@ -171,12 +172,16 @@ def cmd_rebuild(args) -> int:
             if args.plan_only:
                 return 0
             if args.sql_out:
-                out = rebuild.write_rebuild_script(src, plan, args.sql_out,
-                                                   database=args.target_database,
+                db = args.target_database or ""
+                out = rebuild.write_rebuild_script(src, plan, args.sql_out, database=db,
                                                    drop_existing=args.drop,
                                                    progress=_cli_progress)
                 print(file=sys.stderr)
-                print(f"Wrote {out}. On the server run:  {rebuild.run_command(out)}")
+                if db:
+                    print(f"Wrote {out}. On the server run:  {rebuild.run_command(out)}")
+                else:
+                    print(f"Wrote {out} (portable: no database name inside). Import it into an "
+                          f"empty database:  {rebuild.run_command(out, 'DATABASE')}")
                 return 0
             cfg = ConnectionConfig(
                 host=args.target_host, port=args.target_port, user=args.target_user,
@@ -752,7 +757,9 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--exclude", nargs="*", help="Tables not to copy (e.g. log tables)")
     pb.add_argument("--plan-only", action="store_true", help="Show the plan and stop")
     pb.add_argument("--sql-out", metavar="FILE",
-                    help="Write the whole rebuild as a script (.sql or .sql.gz) instead")
+                    help="Save the rebuilt database as a local .sql/.sql.gz file instead; "
+                         "with --target-database the file creates that database, without "
+                         "it the file is portable (import into any empty database)")
     pb.add_argument("--target-host", help="MySQL server where the new database is created")
     pb.add_argument("--target-port", type=int, default=3306)
     pb.add_argument("--target-user", default="root")

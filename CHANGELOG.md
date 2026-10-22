@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-22
+### Added
+- **Save the rebuilt database as a local file** — *Guardar como ficheiro .sql local…*
+  (Templates / Nova BD) writes the new database (template schema + the ticked tables'
+  rows) to a `.sql` or `.sql.gz` file on this computer, without any server. With a
+  *Nova base de dados* name the file creates that database; left blank it is a portable
+  dump with no database name inside, to import into any empty database (phpMyAdmin,
+  *Migrar / Restaurar*, `mysql -u root -p DATABASE < file`) or to open again here as a
+  dump source. The file dialog starts in the export folder.
+- CLI `rebuild --sql-out FILE` no longer needs `--target-database`: without it the file
+  is portable. `--plan-only` with `--target-host` needs no name either.
+- User guide: *Reconstruir uma base de dados a partir de um dump* explains the local file.
+
+### Changed
+- *Guardar script de reconstrução…* is now *Guardar como ficheiro .sql local…*; the hint
+  for `.sql.gz` files says `gunzip -c file | mysql …` (mysql cannot read gzip itself).
+
 ## [0.7.0] - 2026-10-22
 ### Added
 - **Rebuild from a dump** — *Templates / Nova BD → Reconstruir a partir da origem

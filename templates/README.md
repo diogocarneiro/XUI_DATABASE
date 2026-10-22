@@ -22,6 +22,14 @@ python -m xdbtool init-db --template xui_one-1.5.13 \
     --target-database new_panel
 ```
 
+## Rebuild a database from a dump with a template's schema
+
+```bash
+python -m xdbtool rebuild --dump old_backup.sql --template xui_one-1.5.13 \
+    --tables lines users streams bouquets --target-host 127.0.0.1 \
+    --target-user root --target-password secret --target-database xui_new
+```
+
 ## Refresh the committed signatures (maintainers)
 
 ```bash

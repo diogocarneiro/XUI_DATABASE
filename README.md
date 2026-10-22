@@ -53,6 +53,9 @@ MySQL/MariaDB connection or from an offline `mysqldump` `.sql` file.
   **recreate a fresh, clean database** for that panel on any target server. Base
   `.sql` files stay local; only name-only *signatures* are shipped, and they also
   fingerprint an unknown database to its closest known template/version.
+- **Rebuild from a dump** — create a new database from a template (the clean schema
+  of the panel version you want) and copy into it only the tables you pick from a
+  dump, matching columns by name; live in one transaction or as a `.sql` script.
 - **XUI.one migration** — stage an old Xtream UI / ZapX / StreamCreed / XC v2 dump
   as `xui_migrate` for XUI's own *Database Migration* page, or import an XUI.one
   backup into another XUI server choosing what to restore (channels, movies,
@@ -82,9 +85,9 @@ publishes one format per audience, all listed in `SHA256SUMS.txt`:
 ```bash
 # Linux server, e.g. the XUI host itself
 curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/latest/download/SHA256SUMS.txt
-curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.6.0/xui-db-tool-0.6.0-linux-x86_64
+curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.7.0/xui-db-tool-0.7.0-linux-x86_64
 sha256sum --check --ignore-missing SHA256SUMS.txt
-chmod +x xui-db-tool-0.6.0-linux-x86_64 && ./xui-db-tool-0.6.0-linux-x86_64 --help
+chmod +x xui-db-tool-0.7.0-linux-x86_64 && ./xui-db-tool-0.7.0-linux-x86_64 --help
 ```
 
 All three update themselves: *Ajuda → Procurar actualizações* in the app, or
@@ -175,7 +178,7 @@ bridge run on the server as the SSH user, so it logs in exactly like `mysql -uro
 there. Leave the MySQL password blank.
 
 The same *Connect via* choice is on **Templates / New DB** and **Migrate / Restore**
-(CLI: `--ssh-*` on `init-db`/`restore`, `--target-ssh-*` on `migrate`).
+(CLI: `--ssh-*` on `init-db`/`restore`, `--target-ssh-*` on `migrate`/`rebuild`).
 
 **Drop guard:** `--drop` / "DROP database first" refuses to drop a database that
 holds panel data (`lines`, `users`, `streams`, …) — e.g. the live `xui` — and
@@ -200,6 +203,29 @@ python -m xdbtool init-db   --template xui_one-1.5.13 --target-host H --target-u
     --target-password P --target-database new_panel
 python -m xdbtool migrate   --dump old_backup.sql    --target-host H --target-user U \
     --target-password P --target-database new_panel
+```
+
+### Rebuild — new database from a template + chosen tables of a dump
+
+The new database gets the template's clean schema and the **data** of the tables you
+choose. Columns are matched by name (dump-only columns are dropped, new template columns
+get their defaults); tables taken from the dump replace the template's default rows,
+the others keep them. In the GUI: load the dump, tick the tables, then **Templates /
+New DB → Rebuild from the loaded source**.
+
+```bash
+# See what would happen (template defaults to the closest registered one)
+python -m xdbtool rebuild --dump old_backup.sql --exclude lines_logs panel_logs --plan-only
+
+# Create it on a server (rows copied in one transaction; refuses a DB that has tables)
+python -m xdbtool rebuild --dump old_backup.sql --template xui_one-1.5.13 \
+    --tables lines users streams streams_categories bouquets \
+    --target-host 127.0.0.1 --target-user root --target-password secret \
+    --target-database xui_new
+
+# ...or write a script to run on the server: gunzip -c rebuild.sql.gz | mysql -u root -p
+python -m xdbtool rebuild --dump old_backup.sql --sql-out rebuild.sql.gz \
+    --target-database xui_new
 ```
 
 ### Inject directly into a server
@@ -335,6 +361,7 @@ xdbtool/
     repair.py       # CHECK / REPAIR / ANALYZE / OPTIMIZE
     migrator.py     # column-level migration engine
     restore.py      # execute a .sql dump on a live server
+    rebuild.py      # new DB from a template + chosen tables of a dump
     xui_migrate.py  # stage an old panel dump as `xui_migrate` for XUI.one
     ssh_remote.py   # SSH/SFTP helper: run the server's mysql client remotely
     xui_import.py   # XUI.one → XUI.one import (schema-aware, keeps system tables)

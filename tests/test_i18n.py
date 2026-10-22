@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from string import Formatter
+
 import pytest
 
 from xdbtool import i18n
@@ -44,7 +46,8 @@ def test_placeholders_match_english(code):
 def test_every_translation_formats(code):
     set_language(code)
     for key in MESSAGES:
-        sample = {name: 0.5 if name == "confidence" else "x" for name in fields(key)}
+        numeric = {name for _text, name, spec, _conv in Formatter().parse(key) if name and spec}
+        sample = {name: 0.5 if name in numeric else "x" for name in fields(key)}
         _(key, **sample)  # raises on a broken placeholder or format spec
 
 

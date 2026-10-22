@@ -171,6 +171,27 @@ vuoto</b> su un server (per esempio <code>xui_test</code>). Non usare il nome de
 pannello in produzione (<code>xui</code>): con <i>DROP</i> selezionato verrebbe sostituito —
 l'app rifiuta e chiede di digitare il nome per confermare.</p>
 
+<h3>Ricostruire un database da un dump</h3>
+<p>Usala quando un backup ha uno schema vecchio, danneggiato o di un'altra versione: il nuovo
+database riceve lo <b>schema pulito del modello</b> e solo i <b>dati</b> delle tabelle
+scelte.</p>
+<ol>
+<li>Carica il dump (o un database live) in <i>Origine dei dati</i>.</li>
+<li>Seleziona nell'elenco a sinistra le tabelle da copiare (per esempio, deseleziona i log).</li>
+<li>Scegli il modello — il più simile viene selezionato automaticamente — e scrivi il nome del
+nuovo database.</li>
+<li><b>Anteprima ricostruzione</b> mostra nel log cosa succede a ogni tabella.</li>
+<li><b>Ricostruisci → crea il nuovo database</b> lo crea sul server di destinazione, oppure
+<b>Salva script di ricostruzione…</b> scrive un <code>.sql</code> da eseguire sul server con
+<code>mysql -u root -p &lt; file</code>.</li>
+</ol>
+<p>Le colonne corrispondono per nome: quelle presenti solo nel dump vengono scartate, le nuove
+colonne del modello ricevono il valore predefinito. Una tabella selezionata sostituisce le righe
+predefinite del modello (impostazioni, gruppi…); quelle non selezionate — e quelle selezionate
+ma vuote nel dump — le mantengono. Le tabelle che il modello non ha vengono ignorate. Le righe
+sono copiate in un'unica transazione; gli hash delle password sono copiati così come sono. L'app
+rifiuta un database che contiene già tabelle, a meno che <i>DROP</i> sia selezionato.</p>
+
 <h2><a name="migrate"></a>Migra / Ripristina</h2>
 <ul>
 <li><b>Migra l'origine caricata</b> — copia le righe in un database di destinazione colonna per

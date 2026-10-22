@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-22
+### Added
+- **Rebuild from a dump** — *Templates / Nova BD → Reconstruir a partir da origem
+  carregada*: creates a new database from a registered template (the clean schema of
+  the panel version wanted, with its default rows) and copies into it the rows of the
+  tables ticked in the list. Columns are matched by name: dump-only columns are dropped,
+  new template columns get their defaults. Ticked tables replace the template's default
+  rows (an empty one keeps them); unticked tables keep them; tables the template lacks
+  are skipped. *Pré-visualizar reconstrução* lists all of this in the log.
+- *Reconstruir → criar a nova base de dados* loads it on the target server (also over
+  SSH); *Guardar script de reconstrução…* writes a `.sql`/`.sql.gz` to run with
+  `mysql -u root -p < file`.
+- The closest registered template is pre-selected when a source is loaded.
+- CLI `rebuild`: `--template` (default: closest), `--tables`, `--exclude`,
+  `--plan-only`, `--sql-out`, `--target-*`, `--drop`, `--allow-drop-panel`.
+- User guide: *Templates / Nova BD* gains the *Reconstruir uma base de dados a partir
+  de um dump* steps.
+
+### Fixed
+- Dumps whose `INSERT`s name only some columns, or list them in another order
+  (phpMyAdmin, XC_VM — e.g. `servers`), were read with the values under the wrong
+  columns (`col_0`, `col_1`…). Each row now follows its own `INSERT` column list, in
+  the viewer, export, migration and integrity check too.
+
+### Safety
+- The rows are copied in one transaction (none is kept if one fails); a database that
+  already has tables is refused unless *DROP* is ticked, and dropping one with panel
+  data still asks for its name. Password hashes are copied verbatim.
+
 ## [0.6.0] - 2026-10-21
 ### Added
 - **Edit data** — *Modo de edição* in the data viewer (live MySQL, tables with a

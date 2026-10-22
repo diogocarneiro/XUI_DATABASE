@@ -171,6 +171,27 @@ base</b> la guarda una vez; después <b>Crear base de datos desde la plantilla</
 base del panel en producción (<code>xui</code>): con <i>DROP</i> marcado se sustituiría — la
 app lo rechaza y pide que escribas el nombre para confirmar.</p>
 
+<h3>Reconstruir una base de datos desde un dump</h3>
+<p>Úsalo cuando una copia tiene un esquema antiguo, dañado o de otra versión: la nueva base
+recibe el <b>esquema limpio de la plantilla</b> y solo los <b>datos</b> de las tablas que
+elijas.</p>
+<ol>
+<li>Carga el dump (o una base en vivo) en <i>Origen de los datos</i>.</li>
+<li>Marca en la lista de la izquierda las tablas a copiar (por ejemplo, desmarca los logs).</li>
+<li>Elige la plantilla — la más parecida se selecciona automáticamente — y escribe el nombre de
+la nueva base.</li>
+<li><b>Vista previa de la reconstrucción</b> muestra en el registro qué pasa con cada tabla.</li>
+<li><b>Reconstruir → crear la nueva base de datos</b> la crea en el servidor de destino, o
+<b>Guardar script de reconstrucción…</b> escribe un <code>.sql</code> para ejecutar en el
+servidor con <code>mysql -u root -p &lt; archivo</code>.</li>
+</ol>
+<p>Las columnas coinciden por nombre: las que solo existen en el dump se descartan y las
+columnas nuevas de la plantilla reciben su valor predeterminado. Una tabla marcada sustituye las
+filas predeterminadas de la plantilla (ajustes, grupos…); las no marcadas — y las marcadas que
+están vacías en el dump — las conservan. Las tablas que la plantilla no tiene se omiten. Las
+filas se copian en una sola transacción y los hashes de las contraseñas se copian tal cual. La
+app rechaza una base que ya tenga tablas, salvo que <i>DROP</i> esté marcado.</p>
+
 <h2><a name="migrate"></a>Migrar / Restaurar</h2>
 <ul>
 <li><b>Migrar el origen cargado</b> — copia las filas a una base de destino columna a columna

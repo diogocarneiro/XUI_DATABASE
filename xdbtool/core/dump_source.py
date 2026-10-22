@@ -212,7 +212,9 @@ class SqlDumpSource(DataSource):
         self.encoding = encoding
         self.label = self.path.name
         self._columns: dict[str, list[ColumnInfo]] = {}
-        self._rows: dict[str, list[list[object]]] = {}
+        # Each row keeps the column list of its INSERT (None: the CREATE TABLE order),
+        # so INSERTs naming only some columns, or in another order, read correctly.
+        self._rows: dict[str, list[tuple[tuple[str, ...] | None, list[object]]]] = {}
         self._loaded = False
 
     def open(self) -> None:
@@ -238,10 +240,12 @@ class SqlDumpSource(DataSource):
                 table = m.group(1)
                 explicit_cols = m.group(2)
                 blob = stmt[m.end() :]
+                names = (tuple(c.strip().strip("`") for c in explicit_cols.split(","))
+                         if explicit_cols else None)
+                rows = self._rows.setdefault(table, [])
                 for values in _split_tuples(blob):
-                    self._rows.setdefault(table, []).append([_convert(v) for v in values])
-                if explicit_cols and table not in self._columns:
-                    names = [c.strip().strip("`") for c in explicit_cols.split(",")]
+                    rows.append((names, [_convert(v) for v in values]))
+                if names and table not in self._columns:
                     self._columns[table] = [ColumnInfo(name=x, data_type="") for x in names]
         self._loaded = True
         log.info("Parsed dump %s: %d tables", self.label, len(self.list_tables()))
@@ -262,11 +266,11 @@ class SqlDumpSource(DataSource):
         return len(self._rows.get(table, []))
 
     def iter_rows(self, table: str, batch_size: int = 1000) -> Iterator[dict]:
-        cols = self._columns.get(table)
-        rows = self._rows.get(table, [])
-        for row in rows:
-            if cols and len(cols) == len(row):
-                yield {c.name: v for c, v in zip(cols, row, strict=False)}
+        create = tuple(c.name for c in self._columns.get(table, []))
+        for names, row in self._rows.get(table, []):
+            keys = names or create
+            if keys and len(keys) == len(row):
+                yield dict(zip(keys, row, strict=True))
             else:  # fall back to positional column names
                 yield {f"col_{idx}": v for idx, v in enumerate(row)}
 

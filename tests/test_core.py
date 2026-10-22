@@ -85,3 +85,22 @@ def test_redaction(source, tmp_path):
     path = export_table(source, "users", opts)
     data = json.loads(path.read_text(encoding="utf-8"))
     assert all(r["password"] == "***" for r in data)
+
+
+def test_insert_with_partial_or_reordered_column_list(tmp_path):
+    """phpMyAdmin/XC_VM dumps name the columns; some INSERTs leave columns out."""
+    dump = tmp_path / "partial.sql"
+    dump.write_text(
+        "CREATE TABLE `servers` (\n  `id` int(11) NOT NULL,\n  `name` varchar(64),\n"
+        "  `port` int(11) DEFAULT 80,\n  PRIMARY KEY (`id`)\n);\n"
+        "INSERT INTO `servers` (`id`, `name`) VALUES (1, 'Main');\n"
+        "INSERT INTO `servers` (`port`, `name`, `id`) VALUES (8080, 'LB', 2);\n"
+        "INSERT INTO `servers` VALUES (3, 'Old', 25461);\n", encoding="utf-8")
+    with SqlDumpSource(dump) as src:
+        assert list(src.iter_rows("servers")) == [
+            {"id": 1, "name": "Main"},
+            {"port": 8080, "name": "LB", "id": 2},
+            {"id": 3, "name": "Old", "port": 25461},
+        ]
+        page = src.fetch_page("servers", order_by="id")
+        assert page.rows == [(1, "Main", None), (2, "LB", 8080), (3, "Old", 25461)]

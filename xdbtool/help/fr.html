@@ -179,6 +179,28 @@ N'utilisez pas le nom de la base du panneau en production (<code>xui</code>) : a
 <i>DROP</i> coché elle serait remplacée — l'application refuse et vous demande de saisir le
 nom pour confirmer.</p>
 
+<h3>Reconstruire une base de données depuis un dump</h3>
+<p>À utiliser quand une sauvegarde a un schéma ancien, endommagé ou d'une autre version : la
+nouvelle base reçoit le <b>schéma propre du modèle</b> et seulement les <b>données</b> des tables
+choisies.</p>
+<ol>
+<li>Chargez le dump (ou une base en direct) dans <i>Source des données</i>.</li>
+<li>Cochez dans la liste de gauche les tables à copier (par exemple, décochez les journaux).</li>
+<li>Choisissez le modèle — le plus proche est sélectionné automatiquement — et saisissez le nom
+de la nouvelle base.</li>
+<li><b>Aperçu de la reconstruction</b> indique dans le journal ce qui arrive à chaque table.</li>
+<li><b>Reconstruire → créer la nouvelle base de données</b> la crée sur le serveur cible, ou
+<b>Enregistrer le script de reconstruction…</b> écrit un <code>.sql</code> à exécuter sur le
+serveur avec <code>mysql -u root -p &lt; fichier</code>.</li>
+</ol>
+<p>Les colonnes correspondent par leur nom : celles présentes seulement dans le dump sont
+ignorées, les nouvelles colonnes du modèle reçoivent leur valeur par défaut. Une table cochée
+remplace les lignes par défaut du modèle (paramètres, groupes…) ; les tables non cochées — et
+les tables cochées vides dans le dump — les conservent. Les tables absentes du modèle sont
+ignorées. Les lignes sont copiées en une seule transaction ; les hachages des mots de passe sont
+copiés tels quels. L'application refuse une base qui contient déjà des tables, sauf si
+<i>DROP</i> est coché.</p>
+
 <h2><a name="migrate"></a>Migrer / Restaurer</h2>
 <ul>
 <li><b>Migrer la source chargée</b> — copie les lignes vers une base cible colonne par colonne

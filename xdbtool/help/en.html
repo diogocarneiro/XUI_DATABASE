@@ -160,6 +160,25 @@ server (for example <code>xui_test</code>). Do not use the live panel's database
 (<code>xui</code>): with <i>DROP</i> ticked it would be replaced — the app refuses and asks you
 to type the name to confirm.</p>
 
+<h3>Rebuild a database from a dump</h3>
+<p>Use it when a backup has an old, damaged or different-version schema: the new database
+gets the <b>clean schema of the template</b> and only the <b>data</b> of the tables you choose.</p>
+<ol>
+<li>Load the dump (or a live database) in <i>Data source</i>.</li>
+<li>Tick the tables to copy in the list on the left (e.g. untick the logs).</li>
+<li>Choose the template — the closest one is selected automatically — and type the name of
+the new database.</li>
+<li><b>Preview rebuild</b> lists, in the log, what happens to each table.</li>
+<li><b>Rebuild → create the new database</b> creates it on the target server, or
+<b>Save rebuild script…</b> writes a <code>.sql</code> to run on the server with
+<code>mysql -u root -p &lt; file</code>.</li>
+</ol>
+<p>Columns are matched by name: columns only in the dump are dropped, new template columns get
+their default values. A ticked table replaces the template's default rows (settings, groups…);
+unticked tables — and ticked tables that are empty in the dump — keep them. Tables the template
+does not have are skipped. The rows are copied in one transaction; password hashes are copied
+as they are. The app refuses a database that already has tables unless <i>DROP</i> is ticked.</p>
+
 <h2><a name="migrate"></a>Migrate / Restore</h2>
 <ul>
 <li><b>Migrate the loaded source</b> — copies rows into a target database column by column

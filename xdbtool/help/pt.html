@@ -171,6 +171,26 @@ guarda-o uma vez; depois <b>Criar base de dados a partir do template</b> cria um
 do painel em produção (<code>xui</code>): com <i>DROP</i> marcado ela seria substituída — a app
 recusa e pede que escrevas o nome para confirmar.</p>
 
+<h3>Reconstruir uma base de dados a partir de um dump</h3>
+<p>Usa-a quando um backup tem um schema antigo, danificado ou de outra versão: a nova base
+recebe o <b>schema limpo do template</b> e só os <b>dados</b> das tabelas que escolheres.</p>
+<ol>
+<li>Carrega o dump (ou uma base ao vivo) em <i>Origem dos dados</i>.</li>
+<li>Marca na lista à esquerda as tabelas a copiar (por exemplo, desmarca os logs).</li>
+<li>Escolhe o template — o mais parecido fica seleccionado automaticamente — e escreve o nome
+da nova base.</li>
+<li><b>Pré-visualizar reconstrução</b> mostra no log o que acontece a cada tabela.</li>
+<li><b>Reconstruir → criar a nova base de dados</b> cria-a no servidor de destino, ou
+<b>Guardar script de reconstrução…</b> grava um <code>.sql</code> para correr no servidor com
+<code>mysql -u root -p &lt; ficheiro</code>.</li>
+</ol>
+<p>As colunas correspondem pelo nome: as que só existem no dump são descartadas e as colunas
+novas do template ficam com o valor por omissão. Uma tabela marcada substitui as linhas por
+omissão do template (settings, grupos…); as não marcadas — e as marcadas que estão vazias no
+dump — mantêm-nas. As tabelas que o template não tem são ignoradas. As linhas são copiadas numa
+só transacção e os hashes das passwords são copiados tal como estão. A app recusa uma base que
+já tenha tabelas, a menos que <i>DROP</i> esteja marcado.</p>
+
 <h2><a name="migrate"></a>Migrar / Restaurar</h2>
 <ul>
 <li><b>Migrar a origem carregada</b> — copia as linhas para uma base de destino, coluna a

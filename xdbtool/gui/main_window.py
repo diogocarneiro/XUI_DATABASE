@@ -42,6 +42,7 @@ from .. import about as about_info
 from ..core import (
     integrity,
     profiles,
+    rebuild,
     renumber,
     templates,
     updater,
@@ -792,8 +793,151 @@ class MainWindow(QMainWindow):
         form.addRow(_("New database:"), self.t_db)
         form.addRow("", self.t_drop)
         form.addRow(create_btn)
+
+        # -- rebuild: template + chosen tables of the loaded source --
+        form.addRow(QLabel(_("<b>Rebuild from the loaded source</b>")))
+        intro = QLabel(_(
+            "Creates the new database from the template above and copies into it the rows of "
+            "the tables <b>ticked on the left</b>, matching columns by name. Ticked tables "
+            "replace the template's default rows; the other tables keep them."))
+        intro.setWordWrap(True)
+        form.addRow(intro)
+        preview_btn = QPushButton(_("Preview rebuild"))
+        preview_btn.clicked.connect(self._do_rebuild_preview)
+        rebuild_btn = self._role(QPushButton(_("Rebuild → create the new database")), "danger")
+        rebuild_btn.clicked.connect(self._do_rebuild)
+        script_btn = QPushButton(_("Save rebuild script…"))
+        script_btn.setToolTip(_("A .sql script to run on the server: mysql -u root -p < file"))
+        script_btn.clicked.connect(self._save_rebuild_script)
+        btns = QHBoxLayout()
+        btns.addWidget(preview_btn)
+        btns.addWidget(script_btn)
+        form.addRow(self._wrap(btns))
+        form.addRow(rebuild_btn)
         self._refresh_templates()
-        return w
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # let long text wrap
+        scroll.setWidget(w)
+        return scroll
+
+    def _select_closest_template(self) -> None:
+        """Pre-select the template that best matches the loaded source."""
+        meta, _score = rebuild.suggest_template(self.source)
+        index = self.tmpl_combo.findData(meta.key) if meta else -1
+        if index >= 0:
+            self.tmpl_combo.setCurrentIndex(index)
+
+    def _rebuild_inputs(self, need_db: bool = True) -> tuple[str, list[str], str] | None:
+        """(template key, ticked tables, new database name), or None after a warning."""
+        if self._busy_guard():
+            return None
+        key = self.tmpl_combo.currentData()
+        if not key:
+            QMessageBox.warning(self, _("No template"),
+                                _("Register and select a template first."))
+            return None
+        tables = self._selected_tables()
+        if not tables:
+            QMessageBox.warning(self, _("No tables"), _("Select at least one table."))
+            return None
+        db_name = self.t_db.text().strip()
+        if need_db and not db_name:
+            QMessageBox.warning(self, _("No name"), _("Enter a name for the new database."))
+            return None
+        return key, tables, db_name
+
+    def _plan_rebuild(self, src, key, tables, message):
+        message(_("Planning the rebuild of {label} on template '{key}'…", label=src.label,
+                  key=key))
+        plan = rebuild.build_rebuild(src, key, tables)
+        for line in plan.summary_lines():
+            message("  " + line)
+        return plan
+
+    def _do_rebuild_preview(self) -> None:
+        inputs = self._rebuild_inputs(need_db=False)
+        if inputs is None:
+            return
+        key, tables, _db = inputs
+        src = self.source
+        self._start(lambda _progress, message: self._plan_rebuild(src, key, tables, message),
+                    done_msg=_("Rebuild plan ready (see log)."))
+
+    def _save_rebuild_script(self) -> None:
+        inputs = self._rebuild_inputs()
+        if inputs is None:
+            return
+        key, tables, db_name = inputs
+        path, _sel = QFileDialog.getSaveFileName(self, _("Save rebuild script"),
+                                                 f"rebuild-{db_name}.sql", SQL_FILTER)
+        if not path:
+            return
+        src, drop = self.source, self.t_drop.isChecked()
+
+        def job(progress, message):
+            plan = self._plan_rebuild(src, key, tables, message)
+            return rebuild.write_rebuild_script(src, plan, path, database=db_name,
+                                                drop_existing=drop, progress=progress)
+
+        def done(out):
+            self.progress.setValue(100)
+            self._log(_("Rebuild script saved: {path} — on the server run: {command}",
+                        path=out, command=rebuild.run_command(out)))
+
+        self._start_custom(job, done)
+
+    def _do_rebuild(self) -> None:
+        inputs = self._rebuild_inputs()
+        if inputs is None:
+            return
+        key, tables, db_name = inputs
+        try:
+            ssh = self.t_ssh.config()
+        except ValueError as exc:
+            QMessageBox.warning(self, "SSH", str(exc))
+            return
+        cfg = ConnectionConfig(
+            host=self.t_host.text().strip() or "127.0.0.1", port=self.t_port.value(),
+            user=self.t_user.text().strip(), password=self.t_pass.text(), ssh=ssh,
+        )
+        drop = self.t_drop.isChecked()
+        question = _("Create `{db}` on {where} from template '{key}' and copy {count} ticked "
+                     "table(s) into it?", db=db_name, where=self._where(cfg), key=key,
+                     count=len(tables))
+        if drop:
+            question += "\n\n" + _("DROP DATABASE `{db}` if it exists, then recreate it?",
+                                   db=db_name)
+        if QMessageBox.question(self, _("Confirm rebuild"), question) != QMessageBox.Yes:
+            return
+        src = self.source
+
+        def run(allow_drop_panel: bool) -> None:
+            def job(progress, message):
+                plan = self._plan_rebuild(src, key, tables, message)
+                try:
+                    return rebuild.rebuild_live(cfg, src, plan, db_name, drop_existing=drop,
+                                                allow_drop_panel=allow_drop_panel,
+                                                progress=progress, message=message)
+                except DropRefused as exc:
+                    return exc
+
+            def done(result):
+                if isinstance(result, DropRefused):
+                    if self._confirm_panel_drop(result):
+                        run(allow_drop_panel=True)
+                    else:
+                        self._log(_("Cancelled: `{db}` was left untouched.", db=db_name))
+                    return
+                self.progress.setValue(100)
+                self._log(_("Database `{db}` rebuilt from template '{key}': {rows} rows copied "
+                            "across {tables} table(s).", db=db_name, key=key,
+                            rows=sum(result["written"].values()),
+                            tables=len(result["written"])))
+
+            self._start_custom(job, done)
+
+        run(allow_drop_panel=False)
 
     def _refresh_templates(self) -> None:
         self.tmpl_combo.clear()
@@ -1630,6 +1774,7 @@ class MainWindow(QMainWindow):
             self.table_widget.setItem(r, 3, QTableWidgetItem(str(nc) if nc >= 0 else "?"))
         self._log(_("Detected {panel}; loaded {count} tables.", panel=det.profile.name,
                     count=len(tables)))
+        self._select_closest_template()
 
     # ---------------------------------------------------------- actions
     def _do_export(self) -> None:

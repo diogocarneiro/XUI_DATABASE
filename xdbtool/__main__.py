@@ -13,6 +13,7 @@
     xui-db-tool view <table> <args>  # show rows: search, sort, paging
     xui-db-tool edit <table> <args>  # change/insert/delete/import rows (live, undo script)
     xui-db-tool migrate <args>  # migrate between databases
+    xui-db-tool rebuild <args>  # new DB from a template + chosen tables of a dump
     xui-db-tool xui-migrate <dump> <args>  # stage an old panel DB as `xui_migrate`
 
 Run ``xui-db-tool <command> -h`` for each command's options.
@@ -135,6 +136,66 @@ def cmd_init_db(args) -> int:
     print(file=sys.stderr)
     print(f"Created database '{result['database']}' from template "
           f"'{result['template']}' ({result['statements']} statements).")
+    return 0
+
+
+def cmd_rebuild(args) -> int:
+    from .core import rebuild
+    from .core.mysql_source import ConnectionConfig, DropRefused
+    from .core.source import SourceError
+
+    if not args.plan_only and not (args.sql_out or args.target_host):
+        print("--target-host or --sql-out is required unless --plan-only is used.",
+              file=sys.stderr)
+        return 2
+    if not args.plan_only and not args.target_database:
+        print("--target-database (the new database's name) is required.", file=sys.stderr)
+        return 2
+    try:
+        with _open_source(args) as src:
+            key = args.template
+            if not key:
+                meta, score = rebuild.suggest_template(src)
+                if meta is None:
+                    print("No registered template with its .sql on disk; register one with "
+                          "`templates --register`.", file=sys.stderr)
+                    return 2
+                key = meta.key
+                print(f"Template: {key} (closest match, {score:.0%}; choose with --template)")
+            exclude = {t.lower() for t in args.exclude or ()}
+            tables = [t for t in (args.tables or src.list_tables()) if t.lower() not in exclude]
+            plan = rebuild.build_rebuild(src, key, tables)
+            print(f"Source : {src.label}")
+            for line in plan.summary_lines():
+                print(f"  {line}")
+            if args.plan_only:
+                return 0
+            if args.sql_out:
+                out = rebuild.write_rebuild_script(src, plan, args.sql_out,
+                                                   database=args.target_database,
+                                                   drop_existing=args.drop,
+                                                   progress=_cli_progress)
+                print(file=sys.stderr)
+                print(f"Wrote {out}. On the server run:  {rebuild.run_command(out)}")
+                return 0
+            cfg = ConnectionConfig(
+                host=args.target_host, port=args.target_port, user=args.target_user,
+                password=args.target_password, ssh=_ssh_from_args(args, "target_"),
+            )
+            result = rebuild.rebuild_live(
+                cfg, src, plan, args.target_database, drop_existing=args.drop,
+                allow_drop_panel=args.allow_drop_panel, progress=_cli_progress,
+                message=lambda m: print(f"\n{m}", file=sys.stderr))
+    except DropRefused as exc:
+        print(f"\n{exc}\n(add --allow-drop-panel to really destroy it)", file=sys.stderr)
+        return 2
+    except (rebuild.RebuildError, SourceError) as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        return 2
+    print(file=sys.stderr)
+    rows = sum(result["written"].values())
+    print(f"Created '{result['database']}' from template '{result['template']}' and copied "
+          f"{rows} rows across {len(result['written'])} table(s).")
     return 0
 
 
@@ -678,6 +739,30 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Allow --drop even when the database holds panel data (destroys it!)")
     _add_ssh_args(pd, mysql_creds=False)
     pd.set_defaults(func=cmd_init_db)
+
+    pb = sub.add_parser(
+        "rebuild", help="Create a new DB from a template and copy chosen tables of a dump",
+        description="Creates the new database from a registered template (clean schema of "
+                    "the panel version) and copies the rows of the chosen source tables, "
+                    "matching columns by name. Tables taken from the source replace the "
+                    "template's default rows; the others keep them.")
+    _add_source_args(pb)
+    pb.add_argument("--template", help="Template key (default: the closest registered one)")
+    pb.add_argument("--tables", nargs="*", help="Tables to copy (default: all)")
+    pb.add_argument("--exclude", nargs="*", help="Tables not to copy (e.g. log tables)")
+    pb.add_argument("--plan-only", action="store_true", help="Show the plan and stop")
+    pb.add_argument("--sql-out", metavar="FILE",
+                    help="Write the whole rebuild as a script (.sql or .sql.gz) instead")
+    pb.add_argument("--target-host", help="MySQL server where the new database is created")
+    pb.add_argument("--target-port", type=int, default=3306)
+    pb.add_argument("--target-user", default="root")
+    pb.add_argument("--target-password", default="")
+    pb.add_argument("--target-database", help="Name of the new database")
+    pb.add_argument("--drop", action="store_true", help="Replace the database if it exists")
+    pb.add_argument("--allow-drop-panel", action="store_true",
+                    help="Allow --drop even when the database holds panel data (destroys it!)")
+    _add_ssh_args(pb, mysql_creds=False, prefix="target-")
+    pb.set_defaults(func=cmd_rebuild)
 
     pr = sub.add_parser("restore", help="Inject a .sql dump directly into a server")
     pr.add_argument("dump_file", help="Path to the .sql dump to execute")

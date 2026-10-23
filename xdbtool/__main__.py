@@ -106,6 +106,31 @@ def cmd_templates(args) -> int:
         print(f"Registered '{meta.key}': {meta.table_count} tables, "
               f"{len(meta.seed_tables)} with seed data.")
         return 0
+    if args.rows or args.clean:
+        from .core.templates import clean_template, seed_tables
+
+        try:
+            seeds = seed_tables(args.rows or args.clean)
+        except (ValueError, FileNotFoundError) as exc:
+            print(exc, file=sys.stderr)
+            return 2
+        keep = {t.lower() for t in args.keep_rows or ()}
+        extra = {t.lower() for t in args.drop_rows or ()}
+        drop = [s.name for s in seeds
+                if (s.suggested or s.name.lower() in extra) and s.name.lower() not in keep]
+        print(f"Tables with rows in '{args.rows or args.clean}' (X = rows removed by --clean):")
+        for s in seeds:
+            mark = "X" if s.name in drop else " "
+            print(f"  {mark} {s.name:26} {s.size / 1e6:9.2f} MB")
+        if args.rows:
+            return 0
+        meta = clean_template(args.clean, drop, new_key=args.key, name=args.name,
+                              progress=_cli_progress)
+        print(file=sys.stderr)
+        print(f"Registered clean template '{meta.key}' "
+              f"({meta.sql_path().stat().st_size / 1e6:.2f} MB, rows kept in "
+              f"{', '.join(meta.seed_tables) or 'no table'}).")
+        return 0
     rows = list_templates()
     print(f"Templates dir: {templates_dir()}")
     if not rows:
@@ -731,6 +756,16 @@ def build_parser() -> argparse.ArgumentParser:
     pt.add_argument("--key", help="Explicit template key (default: panel-version)")
     pt.add_argument("--export-signatures", action="store_true",
                     help="Write name-only signatures to the package for the repo")
+    pt.add_argument("--rows", metavar="KEY",
+                    help="List the template's tables that have rows, with their size")
+    pt.add_argument("--clean", metavar="KEY",
+                    help="Register a copy without a panel's data (streams, lines, accounts, "
+                         "logs…): same schema, config rows only; --key/--name name the copy "
+                         "(default: KEY-clean)")
+    pt.add_argument("--keep-rows", nargs="*", metavar="TABLE",
+                    help="With --clean: keep the rows of these tables")
+    pt.add_argument("--drop-rows", nargs="*", metavar="TABLE",
+                    help="With --clean: also remove the rows of these tables")
     pt.set_defaults(func=cmd_templates)
 
     pd = sub.add_parser("init-db", help="Create a fresh panel DB from a template")

@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-24
+### Added
+- **Clean template** — *Templates / Nova BD → Limpar template…*: makes a clean copy of a
+  template registered from a real panel's database. The dialog lists every table with
+  rows and its size; tables with a panel's data (streams, lines, accounts, logs, server
+  addresses, block lists…) come ticked for removal, configuration tables (settings,
+  groups, stream types…) keep their rows. The copy keeps the whole schema, emptied
+  tables start their ids at 1 again, and it is registered as a new template
+  (`KEY-clean`); the original is not changed. `xui-1.5.5`: 174 MB → 61 KB.
+- CLI: `templates --rows KEY` lists the tables with rows; `templates --clean KEY`
+  (`--keep-rows`, `--drop-rows`, `--key`, `--name`) makes the clean copy.
+- User guide: *Templates / Nova BD* gains *Limpar um template*.
+
+### Fixed
+- *Criar base de dados a partir do template* (`init-db`) failed on MySQL 5.7+/8 with
+  templates that use zero-date defaults (`Invalid default value`): the session now uses
+  the relaxed `sql_mode` mysqldump expects, as the rebuild already did.
+- `init-db` ignored the template's own `CREATE DATABASE` / `USE` lines, which could send
+  the tables to another database.
+
 ## [0.9.0] - 2026-10-22
 ### Fixed
 - **Rebuild: tables you did not tick no longer bring the template's rows.** A template

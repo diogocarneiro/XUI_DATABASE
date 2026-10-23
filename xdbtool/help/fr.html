@@ -179,6 +179,17 @@ N'utilisez pas le nom de la base du panneau en production (<code>xui</code>) : a
 <i>DROP</i> coché elle serait remplacée — l'application refuse et vous demande de saisir le
 nom pour confirmer.</p>
 
+<h3>Nettoyer un modèle</h3>
+<p>Un modèle devrait être une <b>installation propre</b>. S'il a été enregistré depuis la base
+d'un vrai panneau, il contient les flux, lignes, comptes et journaux de ce panneau (souvent des
+centaines de Mo). Sélectionnez-le et cliquez sur <b>Nettoyer le modèle…</b> : la liste montre
+chaque table avec des lignes et sa taille ; les tables contenant les données d'un panneau —
+flux, lignes, comptes, journaux, adresses de serveurs, listes de blocage — sont déjà cochées,
+et les tables de configuration (paramètres, groupes, types de flux…) gardent leurs lignes.
+Cochez ou décochez selon vos besoins, choisissez la nouvelle clé et le nom, puis <b>Créer le
+modèle propre</b> enregistre une copie avec le même schéma (les tables vidées recommencent leurs
+identifiants à 1). Le modèle d'origine n'est pas modifié.</p>
+
 <h3>Reconstruire une base de données depuis un dump</h3>
 <p>À utiliser quand une sauvegarde a un schéma ancien, endommagé ou d'une autre version : la
 nouvelle base reçoit le <b>schéma propre du modèle</b> et seulement les <b>données</b> des tables

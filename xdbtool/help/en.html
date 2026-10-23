@@ -160,6 +160,16 @@ server (for example <code>xui_test</code>). Do not use the live panel's database
 (<code>xui</code>): with <i>DROP</i> ticked it would be replaced — the app refuses and asks you
 to type the name to confirm.</p>
 
+<h3>Clean a template</h3>
+<p>A template should be a <b>clean installation</b>. If it was registered from a real panel's
+database it carries that panel's streams, lines, accounts and logs (often hundreds of MB).
+Select it and click <b>Clean template…</b>: the list shows every table with rows and its size;
+the tables holding a panel's data — streams, lines, accounts, logs, server addresses, block
+lists — are ticked already, and configuration tables (settings, groups, stream types…) keep
+their rows. Untick or tick what you want, choose the new key and name, and <b>Create clean
+template</b> registers a copy with the same schema (emptied tables start their ids at 1 again).
+The original template is not changed.</p>
+
 <h3>Rebuild a database from a dump</h3>
 <p>Use it when a backup has an old, damaged or different-version schema: the new database
 gets the <b>clean schema of the template</b> and only the <b>data</b> of the tables you choose.</p>

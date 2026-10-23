@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFormLayout,
     QGridLayout,
@@ -70,6 +71,7 @@ from . import theme
 from .data_viewer import DataViewer
 from .help_dialog import AboutDialog, HelpDialog
 from .ssh_fields import SshFields
+from .template_dialog import CleanTemplateDialog
 from .workers import JobRunner
 
 REDACT_HINTS = frozenset({"password", "pass", "pwd", "secret", "token", "api_key", "apikey"})
@@ -783,7 +785,15 @@ class MainWindow(QMainWindow):
         create_btn.clicked.connect(self._do_init_db)
 
         form.addRow(_("Template:"), self._wrap(tmpl_row))
-        form.addRow("", reg)
+        clean = QPushButton(_("Clean template…"))
+        clean.setToolTip(_("Copy the selected template without a panel's data (streams, lines, "
+                           "accounts, logs…): same schema, configuration rows only"))
+        clean.clicked.connect(self._clean_template_dialog)
+        tmpl_btns = QHBoxLayout()
+        tmpl_btns.addWidget(reg)
+        tmpl_btns.addWidget(clean)
+        tmpl_btns.addStretch(1)
+        form.addRow("", self._wrap(tmpl_btns))
         self.t_ssh = SshFields(form, self.t_host, _("Target host:"), self.t_port)
         self.t_ssh.add_rows()
         form.addRow(_("Target host:"), self.t_host)
@@ -971,6 +981,54 @@ class MainWindow(QMainWindow):
                   count=m.table_count) + present, m.key)
         if self.tmpl_combo.count() == 0:
             self.tmpl_combo.addItem(_("<no templates — register one>"), None)
+
+    def _clean_template_dialog(self) -> None:
+        if self.runner.busy:
+            QMessageBox.information(self, _("Busy"), _("Another operation is still running."))
+            return
+        key = self.tmpl_combo.currentData()
+        meta = templates.get_template(key) if key else None
+        if meta is None:
+            QMessageBox.warning(self, _("No template"),
+                                _("Register and select a template first."))
+            return
+
+        def scan(_progress, message):
+            message(_("Reading the rows of template '{key}'…", key=key))
+            return templates.seed_tables(key)
+
+        def choose(seeds):
+            if not seeds:
+                self._log(_("Template '{key}' has no rows: it is clean already.", key=key))
+                return
+            dialog = CleanTemplateDialog(self, meta, seeds)
+            if dialog.exec() != QDialog.Accepted:
+                return
+            new_key, name = dialog.key.text().strip(), dialog.name.text().strip()
+            if templates.get_template(new_key) and QMessageBox.question(
+                self, _("Replace template"),
+                _("Template '{key}' already exists. Replace it?", key=new_key),
+            ) != QMessageBox.Yes:
+                return
+            drop = dialog.dropped()
+
+            def job(progress, message):
+                message(_("Creating clean template '{key}'…", key=new_key))
+                return templates.clean_template(key, drop, new_key=new_key or None,
+                                                name=name or None, progress=progress)
+
+            def done(clean):
+                self.progress.setValue(100)
+                self._log(_("Clean template '{key}' registered ({size}); rows kept in: "
+                            "{tables}.", key=clean.key,
+                            size=rebuild.format_size(clean.sql_path().stat().st_size),
+                            tables=", ".join(clean.seed_tables) or "-"))
+                self._refresh_templates()
+                self.tmpl_combo.setCurrentIndex(self.tmpl_combo.findData(clean.key))
+
+            self._start_custom(job, done)
+
+        self._start_custom(scan, choose)
 
     def _register_template_dialog(self) -> None:
         path, _sel = QFileDialog.getOpenFileName(self, _("Select base schema .sql"), "",

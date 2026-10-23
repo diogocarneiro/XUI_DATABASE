@@ -171,6 +171,16 @@ base</b> la guarda una vez; después <b>Crear base de datos desde la plantilla</
 base del panel en producción (<code>xui</code>): con <i>DROP</i> marcado se sustituiría — la
 app lo rechaza y pide que escribas el nombre para confirmar.</p>
 
+<h3>Limpiar una plantilla</h3>
+<p>Una plantilla debería ser una <b>instalación limpia</b>. Si se registró desde la base de un
+panel real, trae los streams, líneas, cuentas y logs de ese panel (a menudo cientos de MB).
+Selecciónala y pulsa <b>Limpiar plantilla…</b>: la lista muestra cada tabla con filas y su
+tamaño; las tablas con datos de un panel — streams, líneas, cuentas, logs, direcciones de
+servidores, listas de bloqueo — ya vienen marcadas, y las tablas de configuración (ajustes,
+grupos, tipos de stream…) conservan sus filas. Marca o desmarca lo que quieras, elige la clave y
+el nombre nuevos, y <b>Crear plantilla limpia</b> registra una copia con el mismo esquema (las
+tablas vaciadas vuelven a numerar los ids desde 1). La plantilla original no se modifica.</p>
+
 <h3>Reconstruir una base de datos desde un dump</h3>
 <p>Úsalo cuando una copia tiene un esquema antiguo, dañado o de otra versión: la nueva base
 recibe el <b>esquema limpio de la plantilla</b> y solo los <b>datos</b> de las tablas que

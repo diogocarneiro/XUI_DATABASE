@@ -171,6 +171,16 @@ guarda-o uma vez; depois <b>Criar base de dados a partir do template</b> cria um
 do painel em produção (<code>xui</code>): com <i>DROP</i> marcado ela seria substituída — a app
 recusa e pede que escrevas o nome para confirmar.</p>
 
+<h3>Limpar um template</h3>
+<p>Um template deve ser uma <b>instalação limpa</b>. Se foi registado a partir da base de um
+painel real, traz as streams, linhas, contas e logs desse painel (muitas vezes centenas de MB).
+Selecciona-o e carrega em <b>Limpar template…</b>: a lista mostra cada tabela com linhas e o
+seu tamanho; as tabelas com dados de um painel — streams, linhas, contas, logs, endereços de
+servidores, listas de bloqueio — já vêm marcadas, e as tabelas de configuração (settings,
+grupos, tipos de stream…) mantêm as linhas. Marca ou desmarca o que quiseres, escolhe a chave
+e o nome novos, e <b>Criar template limpo</b> regista uma cópia com o mesmo schema (as tabelas
+esvaziadas voltam a numerar os ids a partir de 1). O template original não é alterado.</p>
+
 <h3>Reconstruir uma base de dados a partir de um dump</h3>
 <p>Usa-a quando um backup tem um schema antigo, danificado ou de outra versão: a nova base
 recebe o <b>schema limpo do template</b> e só os <b>dados</b> das tabelas que escolheres.</p>

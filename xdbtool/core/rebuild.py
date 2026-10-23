@@ -56,6 +56,18 @@ DATA_TABLES = frozenset(PANEL_DATA_TABLES) | XUI_LOG_TABLES | XC_LOG_TABLES | {
     "mag_devices", "enigma2_devices", "user_activity", "user_activity_now", "streams_sys",
     "epg_data", "streams_episodes", "series_episodes", "streams_series", "series",
 }
+# Rows suggested for removal when cleaning a template: a panel's data plus its accounts,
+# server addresses and block lists. Clean installs seed a few of these (an admin, the
+# main server), so they only *suggest* - the user decides (templates.clean_template).
+CLEAN_TABLES = DATA_TABLES | {
+    "reg_users", "users", "streaming_servers", "access_codes", "packages", "users_packages",
+    "stream_categories", "streams_categories", "streams_options", "streams_servers",
+    "credits_log", "users_credits_logs", "tickets", "tickets_replies", "blocked_ips",
+    "blocked_user_agents", "blocked_uas", "blocked_isps", "rtmp_ips", "hmac_keys", "epg",
+    "epg_channels", "providers", "providers_streams", "recordings", "watch_folders",
+    "mag_claims", "enigma2_actions", "devices_logs", "server_activity", "created",
+    "isp_addon", "reseller_imex", "tmdb_async", "licence",
+}
 _GENERATED = re.compile(r"\bGENERATED\s+ALWAYS\b|\bAS\s*\(.*\)\s*(VIRTUAL|STORED|PERSISTENT)\b",
                         re.I)
 
@@ -109,7 +121,7 @@ def load_template_schema(meta: TemplateMeta) -> TemplateSchema:
     return out
 
 
-def _size(n: float) -> str:
+def format_size(n: float) -> str:
     if n < 1024:
         return f"{n:.0f} B"
     if n < 1024 * 1024:
@@ -167,7 +179,8 @@ class RebuildPlan:
         return sum(self.schema.seed_bytes[t.lower()] for t in self.kept_defaults)
 
     def _sized(self, tables: Iterable[str]) -> str:
-        return ", ".join(f"{t} ({_size(self.schema.seed_bytes[t.lower()])})" for t in tables)
+        sizes = self.schema.seed_bytes
+        return ", ".join(f"{t} ({format_size(sizes[t.lower()])})" for t in tables)
 
     def summary_lines(self) -> list[str]:
         lines = [_("Template: {name} ({count} tables); the source matches it {score:.0%}.",
@@ -180,7 +193,7 @@ class RebuildPlan:
             size = sum(self.schema.seed_bytes[t.lower()] for t in data)
             lines.append(_("WARNING: this template is not a clean installation - it holds a "
                            "panel's data ({size} in {tables}). Register a clean install as "
-                           "template, or keep its rows out.", size=_size(size),
+                           "template, or keep its rows out.", size=format_size(size),
                            tables=", ".join(data)))
         lines.append(_("Tables copied from the source: {count}", count=len(self.copied)))
         seeded, kept = set(self.replaced_defaults), set(self.kept_defaults)
@@ -203,7 +216,7 @@ class RebuildPlan:
             lines.append(_("Not in the template (skipped): {tables}",
                            tables=", ".join(self.plan.missing_in_target)))
         if self.kept_defaults:
-            lines.append(_("Template rows kept ({size}): {tables}", size=_size(
+            lines.append(_("Template rows kept ({size}): {tables}", size=format_size(
                 self.template_bytes), tables=self._sized(self.kept_defaults)))
         if self.dropped_defaults:
             lines.append(_("Template rows left out: {tables}",

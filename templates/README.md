@@ -14,6 +14,13 @@ python -m xdbtool templates --register path/to/base.sql --panel xui_one --versio
 python -m xdbtool templates           # list registered templates
 ```
 
+## Clean a template made from a real panel's database
+
+```bash
+python -m xdbtool templates --rows xui-1.5.5     # tables with rows + size (X = removed)
+python -m xdbtool templates --clean xui-1.5.5    # registers xui-1.5.5-clean
+```
+
 ## Recreate a fresh database from a template
 
 ```bash

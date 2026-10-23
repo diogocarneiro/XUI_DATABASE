@@ -53,6 +53,8 @@ MySQL/MariaDB connection or from an offline `mysqldump` `.sql` file.
   **recreate a fresh, clean database** for that panel on any target server. Base
   `.sql` files stay local; only name-only *signatures* are shipped, and they also
   fingerprint an unknown database to its closest known template/version.
+  **Clean template** turns one made from a real panel's database into a clean install
+  (same schema, configuration rows only).
 - **Rebuild from a dump** — create a new database from a template (the clean schema
   of the panel version you want) and copy into it only the tables you pick from a
   dump, matching columns by name; live in one transaction or as a `.sql` script.
@@ -85,9 +87,9 @@ publishes one format per audience, all listed in `SHA256SUMS.txt`:
 ```bash
 # Linux server, e.g. the XUI host itself
 curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/latest/download/SHA256SUMS.txt
-curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.9.0/xui-db-tool-0.9.0-linux-x86_64
+curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.10.0/xui-db-tool-0.10.0-linux-x86_64
 sha256sum --check --ignore-missing SHA256SUMS.txt
-chmod +x xui-db-tool-0.9.0-linux-x86_64 && ./xui-db-tool-0.9.0-linux-x86_64 --help
+chmod +x xui-db-tool-0.10.0-linux-x86_64 && ./xui-db-tool-0.10.0-linux-x86_64 --help
 ```
 
 All three update themselves: *Ajuda → Procurar actualizações* in the app, or
@@ -192,6 +194,11 @@ needs `--allow-drop-panel`. Use a new name (e.g. `xui_test`) for fresh databases
 python -m xdbtool templates --register path/to/base.sql \
     --panel xui_one --version 1.5.13 --name "XUI.one 1.5.13"
 python -m xdbtool templates                      # list registered templates
+
+# Clean a template registered from a real panel's database (streams, lines, logs…):
+# same schema, config rows only; registered as a new template (default: KEY-clean)
+python -m xdbtool templates --rows xui-1.5.5              # tables with rows + size
+python -m xdbtool templates --clean xui-1.5.5 --keep-rows streaming_servers
 
 # Create a brand-new, clean database from a template on the target server
 python -m xdbtool init-db --template xui_one-1.5.13 \

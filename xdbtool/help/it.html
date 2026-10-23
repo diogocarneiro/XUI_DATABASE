@@ -171,6 +171,17 @@ vuoto</b> su un server (per esempio <code>xui_test</code>). Non usare il nome de
 pannello in produzione (<code>xui</code>): con <i>DROP</i> selezionato verrebbe sostituito —
 l'app rifiuta e chiede di digitare il nome per confermare.</p>
 
+<h3>Pulire un modello</h3>
+<p>Un modello dovrebbe essere un'<b>installazione pulita</b>. Se è stato registrato dal database
+di un pannello reale, contiene stream, linee, account e log di quel pannello (spesso centinaia di
+MB). Selezionalo e fai clic su <b>Pulisci modello…</b>: l'elenco mostra ogni tabella con righe e
+la sua dimensione; le tabelle con i dati di un pannello — stream, linee, account, log, indirizzi
+dei server, liste di blocco — sono già selezionate, e le tabelle di configurazione
+(impostazioni, gruppi, tipi di stream…) mantengono le righe. Seleziona o deseleziona ciò che
+vuoi, scegli la nuova chiave e il nome, e <b>Crea modello pulito</b> registra una copia con lo
+stesso schema (le tabelle svuotate ricominciano gli id da 1). Il modello originale non viene
+modificato.</p>
+
 <h3>Ricostruire un database da un dump</h3>
 <p>Usala quando un backup ha uno schema vecchio, danneggiato o di un'altra versione: il nuovo
 database riceve lo <b>schema pulito del modello</b> e solo i <b>dati</b> delle tabelle

@@ -18,15 +18,18 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from .dump_source import SqlDumpSource, _iter_statements
+from .dump_source import _CREATE_RE, _INSERT_RE, SqlDumpSource, _iter_statements, read_sql_text
 from .logger import get_logger
 
 log = get_logger(__name__)
+
+_AUTO_INC = re.compile(r"\s*\bAUTO_INCREMENT\s*=\s*\d+", re.I)  # table option, not the column flag
 
 
 def templates_dir() -> Path:
@@ -146,6 +149,78 @@ def list_templates() -> list[TemplateMeta]:
     return load_manifest()
 
 
+def _sql_of(key: str) -> tuple[TemplateMeta, str]:
+    meta = get_template(key)
+    if meta is None:
+        raise ValueError(f"No such template: {key}")
+    if not meta.sql_path().is_file():
+        raise FileNotFoundError(f"Template SQL missing on disk: {meta.sql_path()}")
+    return meta, read_sql_text(meta.sql_path())
+
+
+@dataclass
+class SeedTable:
+    """A template table that has rows, and whether cleaning suggests removing them."""
+
+    name: str
+    size: int          # bytes of its INSERT statements
+    suggested: bool    # holds a panel's data, accounts, addresses or block lists
+
+
+def seed_tables(key: str) -> list[SeedTable]:
+    """The template's tables with rows, largest first."""
+    from .rebuild import CLEAN_TABLES  # local import: rebuild imports this module
+
+    _meta, text = _sql_of(key)
+    sizes: dict[str, int] = {}
+    for stmt in _iter_statements(text):
+        m = _INSERT_RE.match(stmt.lstrip())
+        if m:
+            sizes[m.group(1)] = sizes.get(m.group(1), 0) + len(stmt)
+    return sorted((SeedTable(t, n, t.lower() in CLEAN_TABLES) for t, n in sizes.items()),
+                  key=lambda s: (-s.size, s.name))
+
+
+def clean_template(key: str, drop_rows, *, new_key: str | None = None, name: str | None = None,
+                   progress=None) -> TemplateMeta:
+    """Register a copy of template ``key`` without the rows of the ``drop_rows`` tables.
+
+    The schema is kept whole; the emptied tables also lose their ``AUTO_INCREMENT=N``
+    so new rows start again at 1. The original template is left untouched.
+    """
+    meta, text = _sql_of(key)
+    new_key = _slugify(new_key or f"{key}-clean")
+    if new_key == key:
+        raise ValueError("The clean template needs a key of its own.")
+    drop = {t.lower() for t in drop_rows}
+    dest = templates_dir() / f"{new_key}.sql"
+    tmp = dest.with_name(dest.name + ".part")
+    total, done, removed = len(text), 0, 0
+    with tmp.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(f"-- Clean copy of template '{key}' made by XUI DB Tool: rows removed "
+                 f"from {', '.join(sorted(drop)) or 'no table'}.\n")
+        for n, stmt in enumerate(_iter_statements(text), 1):
+            done += len(stmt)
+            s = stmt.strip()
+            m = _INSERT_RE.match(s)
+            if m and m.group(1).lower() in drop:
+                removed += 1
+                continue
+            m = _CREATE_RE.match(s)
+            if m and m.group(1).lower() in drop:
+                s = _AUTO_INC.sub("", s)
+            if s:
+                fh.write(s + ";\n")
+            if progress and n % 500 == 0:
+                progress("cleaning", done, total)
+    tmp.replace(dest)
+    if progress:
+        progress("cleaning", total, total)
+    log.info("Cleaned template %s -> %s (%d INSERT statements removed)", key, new_key, removed)
+    return register_template(dest, name=name or f"{meta.name} (clean)", panel_key=meta.panel_key,
+                             version=meta.version, key=new_key)
+
+
 # Derived, name-only signatures shipped with the package (no SQL redistributed).
 # Used for detection on a fresh clone where no local templates are registered.
 PACKAGED_SIGNATURES = Path(__file__).resolve().parent.parent / "data" / "panel_signatures.json"
@@ -213,22 +288,20 @@ def create_from_template(
     data needs ``allow_drop_panel`` (see :meth:`MySQLSource.create_database`).
     """
     from .mysql_source import MySQLSource  # local import keeps core import-light
+    from .xui_migrate import _DB_DIRECTIVE, _LOCKS, SESSION_PREAMBLE
 
-    meta = get_template(key)
-    if meta is None:
-        raise ValueError(f"No such template: {key}")
-    sql_path = meta.sql_path()
-    if not sql_path.is_file():
-        raise FileNotFoundError(f"Template SQL missing on disk: {sql_path}")
-
+    meta, sql_text = _sql_of(key)
     cfg = target_config
     cfg.database = ""  # connect without selecting a schema
-    sql_text = sql_path.read_text(encoding="utf-8", errors="replace")
-    statements = [s for s in _iter_statements(sql_text) if s.strip()]
+    # The template's own CREATE DATABASE / USE would send the tables elsewhere.
+    statements = [s for s in (st.strip() for st in _iter_statements(sql_text))
+                  if s and not _DB_DIRECTIVE.match(s) and not _LOCKS.match(s)]
 
     with MySQLSource(cfg) as target:
         target.create_database(db_name, drop_existing=drop_existing,
                                allow_drop_panel=allow_drop_panel)
-        count = target.execute_script(statements, progress=progress)
+        # Relaxed sql_mode as mysqldump expects: zero-date defaults load on MySQL 8 too.
+        count = target.execute_script([*SESSION_PREAMBLE, *statements],
+                                      progress=progress) - len(SESSION_PREAMBLE)
     log.info("Created %s from template %s (%d statements)", db_name, key, count)
     return {"database": db_name, "template": key, "statements": count}

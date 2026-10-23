@@ -188,8 +188,16 @@ def cmd_rebuild(args) -> int:
                     return 2
                 key = meta.key
                 print(f"Template: {key} (closest match, {score:.0%}; choose with --template)")
+            from .core.profiles import config_tables, log_tables
+
+            every = src.list_tables()
             exclude = {t.lower() for t in args.exclude or ()}
-            tables = [t for t in (args.tables or src.list_tables()) if t.lower() not in exclude]
+            if args.no_logs:
+                exclude |= {t.lower() for t in log_tables(every)}
+            tables = list(args.tables or every)
+            if args.with_config:
+                tables += [t for t in config_tables(every) if t not in tables]
+            tables = [t for t in tables if t.lower() not in exclude]
             plan = rebuild.build_rebuild(src, key, tables,
                                          template_rows=args.template_rows)
             print(f"Source : {src.label}")
@@ -791,6 +799,11 @@ def build_parser() -> argparse.ArgumentParser:
     pb.add_argument("--template", help="Template key (default: the closest registered one)")
     pb.add_argument("--tables", nargs="*", help="Tables to copy (default: all)")
     pb.add_argument("--exclude", nargs="*", help="Tables not to copy (e.g. log tables)")
+    pb.add_argument("--with-config", action="store_true",
+                    help="Also copy the configuration tables a panel needs (settings, groups, "
+                         "packages, servers, stream types…) besides --tables")
+    pb.add_argument("--no-logs", action="store_true",
+                    help="Leave out the log and statistics tables")
     pb.add_argument("--template-rows", choices=["missing", "all", "none"], default="missing",
                     help="Which tables keep the template's own rows when not filled from "
                          "the source: missing = only tables the source does not have "

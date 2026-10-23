@@ -35,6 +35,7 @@ from .exporter import _sql_literal
 from .logger import get_logger
 from .migrator import MigrationPlan, TableMapping, build_plan
 from .mysql_source import PANEL_DATA_TABLES, _quote_ident
+from .profiles import config_tables
 from .source import DataSource
 from .templates import TemplateMeta, get_template, list_templates
 from .xui_import import LOG_TABLES as XUI_LOG_TABLES
@@ -174,6 +175,11 @@ class RebuildPlan:
         return sorted(t for t in self.schema.columns if t.lower() not in filled)
 
     @property
+    def empty_config(self) -> list[str]:
+        """Configuration tables the source has but that stay empty (not ticked, or empty)."""
+        return [t for t in config_tables(self.left_empty) if t.lower() in self.source_tables]
+
+    @property
     def template_bytes(self) -> int:
         """Size of the template rows that go into the new database."""
         return sum(self.schema.seed_bytes[t.lower()] for t in self.kept_defaults)
@@ -223,6 +229,11 @@ class RebuildPlan:
                            tables=self._sized(self.dropped_defaults)))
         if self.left_empty:
             lines.append(_("Left empty: {tables}", tables=", ".join(self.left_empty)))
+        if self.empty_config:
+            lines.append(_("WARNING: these configuration tables will be empty (not ticked, or "
+                           "empty in the source): {tables}. The panel needs them - tick them "
+                           "too unless you really want them empty.",
+                           tables=", ".join(self.empty_config)))
         return lines
 
 

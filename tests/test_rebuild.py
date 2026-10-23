@@ -306,3 +306,30 @@ def test_run_command_with_database():
     assert rebuild.run_command("r.sql", "xui_new") == "mysql -u root -p xui_new < r.sql"
     assert (rebuild.run_command("r.sql.gz", "DATABASE")
             == "gunzip -c r.sql.gz | mysql -u root -p DATABASE")
+
+
+def test_warns_about_configuration_tables_left_empty(tmpl, src):
+    rp = rebuild.build_rebuild(src, tmpl.key, ["users"])
+    assert rp.empty_config == ["settings"]  # the source has it, it was not ticked
+    assert any(line.startswith("WARNING: these configuration tables will be empty")
+               and "settings" in line for line in rp.summary_lines())
+    rp = rebuild.build_rebuild(src, tmpl.key, ["users", "settings"])
+    assert rp.empty_config == []
+    assert not any("configuration tables will be empty" in line for line in rp.summary_lines())
+
+
+def test_cli_with_config_and_no_logs(tmpl, tmp_path, capsys):
+    from xdbtool.__main__ import main
+
+    dump = tmp_path / "with_logs.sql"
+    dump.write_text(FIXTURE.read_text(encoding="utf-8") + (
+        "CREATE TABLE `client_logs` (\n  `id` int(11) NOT NULL\n);\n"
+        "INSERT INTO `client_logs` VALUES (1);\n"), encoding="utf-8")
+    assert main(["rebuild", "--dump", str(dump), "--template", tmpl.key, "--tables", "users",
+                 "--with-config", "--plan-only"]) == 0
+    out = capsys.readouterr().out
+    assert "Tables copied from the source: 2" in out and "settings: 2 rows" in out
+    assert main(["rebuild", "--dump", str(dump), "--template", tmpl.key, "--no-logs",
+                 "--plan-only"]) == 0
+    out = capsys.readouterr().out
+    assert "client_logs" not in out.split("Not in the template (skipped):")[1].split("\n")[0]

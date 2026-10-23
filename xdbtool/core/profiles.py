@@ -10,6 +10,7 @@ assumes exact column names — those are read live via introspection.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 
@@ -41,6 +42,39 @@ TABLE_CATEGORIES: dict[str, set[str]] = {
         "user_activity_logs", "lines_log", "watch_history",
     },
 }
+
+
+# Tables a panel needs to run (XUI.one and the Xtream Codes v2 family): settings, groups,
+# packages, servers, stream types/arguments, transcoding profiles, access codes, output
+# formats/devices, cron jobs. Used to tick them in one go (e.g. before a rebuild).
+CONFIG_TABLES = frozenset({
+    "settings", "admin_settings", "settings_mag", "setup", "users_groups", "member_groups",
+    "users_packages", "packages", "servers", "streaming_servers", "streams_types",
+    "streams_arguments", "profiles", "transcoding_profiles", "access_codes", "access_output",
+    "output_formats", "output_devices", "devices", "movie_containers", "crontab", "cronjobs",
+    "epg_languages", "watch_categories", "blocked_asns",
+})
+
+# Logs, statistics and live-connection state: safe to leave out of backups/rebuilds.
+LOG_TABLES = frozenset({
+    "client_logs", "stream_logs", "panel_logs", "user_activity", "user_activity_now",
+    "mag_logs", "mag_events", "login_logs", "login_flood", "reg_userlog", "epg_logs",
+    "lines_logs", "lines_activity", "lines_live", "lines_divergence", "streams_logs",
+    "streams_errors", "streams_stats", "servers_stats", "panel_stats", "users_logs",
+    "detect_restream_logs", "watch_logs", "mysql_syslog", "syskill_log", "server_activity",
+    "suspicious_logs", "enigma2_failed", "credits_log", "users_credits_logs",
+})
+_LOG_NAME = re.compile(r"(^|_)(logs?|syslog|stats|activity|activity_now|history|audit)$")
+
+
+def config_tables(tables: list[str]) -> list[str]:
+    """The tables of ``tables`` a panel needs to run (see :data:`CONFIG_TABLES`)."""
+    return [t for t in tables if t.lower() in CONFIG_TABLES]
+
+
+def log_tables(tables: list[str]) -> list[str]:
+    """The log / statistics tables of ``tables`` (known names, or named like one)."""
+    return [t for t in tables if t.lower() in LOG_TABLES or _LOG_NAME.search(t.lower())]
 
 
 PROFILES: list[PanelProfile] = [

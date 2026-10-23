@@ -87,9 +87,9 @@ publishes one format per audience, all listed in `SHA256SUMS.txt`:
 ```bash
 # Linux server, e.g. the XUI host itself
 curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/latest/download/SHA256SUMS.txt
-curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.10.0/xui-db-tool-0.10.0-linux-x86_64
+curl -LO https://github.com/diogocarneiro/XUI_DATABASE/releases/download/v0.11.0/xui-db-tool-0.11.0-linux-x86_64
 sha256sum --check --ignore-missing SHA256SUMS.txt
-chmod +x xui-db-tool-0.10.0-linux-x86_64 && ./xui-db-tool-0.10.0-linux-x86_64 --help
+chmod +x xui-db-tool-0.11.0-linux-x86_64 && ./xui-db-tool-0.11.0-linux-x86_64 --help
 ```
 
 All three update themselves: *Ajuda → Procurar actualizações* in the app, or
@@ -226,6 +226,10 @@ Rebuild from the loaded source**.
 ```bash
 # See what would happen (template defaults to the closest registered one)
 python -m xdbtool rebuild --dump old_backup.sql --exclude lines_logs panel_logs --plan-only
+
+# Content tables + every configuration table the panel needs, without logs/statistics
+python -m xdbtool rebuild --dump old_backup.sql --tables lines streams bouquets \
+    --with-config --no-logs --plan-only
 
 # Create it on a server (rows copied in one transaction; refuses a DB that has tables)
 python -m xdbtool rebuild --dump old_backup.sql --template xui_one-1.5.13 \

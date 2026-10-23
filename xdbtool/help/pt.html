@@ -15,7 +15,10 @@ ZapX, Xtream Codes v2) que gerem bases de dados <b>suas ou que estão autorizado
 <li>Em <b>Origem dos dados</b>, escolhe uma base de dados em directo (MySQL/MariaDB) ou um
 ficheiro de dump <code>.sql</code>, e carrega em <b>Ligar / Carregar</b>.</li>
 <li>A app identifica o painel e lista as tabelas, com categoria, linhas e colunas.
-Marca as tabelas com que queres trabalhar (<b>Todos</b> / <b>Nenhum</b> / filtro).</li>
+Marca as tabelas com que queres trabalhar (<b>Todos</b> / <b>Nenhum</b> / filtro).
+<b>Seleccionar</b> marca de uma vez as tabelas de configuração de que um painel precisa
+(settings, grupos, pacotes, servidores, tipos de stream…) ou desmarca os logs e
+estatísticas.</li>
 <li>Usa os separadores à direita. O registo em baixo mostra o que está a acontecer.</li>
 </ol>
 <p>Botões <b>azuis</b> são as acções principais; botões com contorno <b>vermelho</b> escrevem
@@ -186,7 +189,10 @@ esvaziadas voltam a numerar os ids a partir de 1). O template original não é a
 recebe o <b>schema limpo do template</b> e só os <b>dados</b> das tabelas que escolheres.</p>
 <ol>
 <li>Carrega o dump (ou uma base ao vivo) em <i>Origem dos dados</i>.</li>
-<li>Marca na lista à esquerda as tabelas a copiar (por exemplo, desmarca os logs).</li>
+<li>Marca na lista à esquerda as tabelas a copiar. <b>Seleccionar → Marcar as tabelas de
+configuração</b> junta o que o painel precisa; <b>Seleccionar → Desmarcar logs e
+estatísticas</b> deixa os logs de fora. A pré-visualização avisa das tabelas de configuração
+que ficariam vazias.</li>
 <li>Escolhe o template — o mais parecido fica seleccionado automaticamente — e escreve o nome
 da nova base.</li>
 <li><b>Pré-visualizar reconstrução</b> mostra no log o que acontece a cada tabela.</li>

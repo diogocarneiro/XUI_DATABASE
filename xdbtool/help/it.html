@@ -16,7 +16,10 @@ gestire</b>.</p>
 <li>In <b>Origine dei dati</b> scegli un database live (MySQL/MariaDB) o un file di dump
 <code>.sql</code> e premi <b>Connetti / Carica</b>.</li>
 <li>L'app identifica il pannello ed elenca le tabelle con categoria, righe e colonne.
-Seleziona le tabelle su cui lavorare (<b>Tutti</b> / <b>Nessuno</b> / filtro).</li>
+Seleziona le tabelle su cui lavorare (<b>Tutti</b> / <b>Nessuno</b> / filtro).
+<b>Seleziona</b> seleziona in un colpo le tabelle di configurazione che servono a un
+pannello (impostazioni, gruppi, pacchetti, server, tipi di stream…) o deseleziona log e
+statistiche.</li>
 <li>Usa le schede a destra. Il log in basso mostra cosa sta succedendo.</li>
 </ol>
 <p>I pulsanti <b>blu</b> sono le azioni principali; i pulsanti con bordo <b>rosso</b> scrivono
@@ -188,7 +191,10 @@ database riceve lo <b>schema pulito del modello</b> e solo i <b>dati</b> delle t
 scelte.</p>
 <ol>
 <li>Carica il dump (o un database live) in <i>Origine dei dati</i>.</li>
-<li>Seleziona nell'elenco a sinistra le tabelle da copiare (per esempio, deseleziona i log).</li>
+<li>Seleziona nell'elenco a sinistra le tabelle da copiare. <b>Seleziona → Seleziona le
+tabelle di configurazione</b> aggiunge ciò che serve al pannello; <b>Seleziona → Deseleziona
+log e statistiche</b> esclude i log. L'anteprima avvisa delle tabelle di configurazione che
+resterebbero vuote.</li>
 <li>Scegli il modello — il più simile viene selezionato automaticamente — e scrivi il nome del
 nuovo database.</li>
 <li><b>Anteprima ricostruzione</b> mostra nel log cosa succede a ogni tabella.</li>

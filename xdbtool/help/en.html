@@ -15,7 +15,9 @@ ZapX, Xtream Codes v2) working on databases they <b>own or are authorised to man
 <li>In <b>Data source</b>, pick a live database (MySQL/MariaDB) or a <code>.sql</code> dump file
 and press <b>Connect / Load</b>.</li>
 <li>The app identifies the panel and lists its tables with category, rows and columns. Tick
-the tables you want to work on (<b>All</b> / <b>None</b> / filter).</li>
+the tables you want to work on (<b>All</b> / <b>None</b> / filter). <b>Select</b> ticks the
+configuration tables a panel needs (settings, groups, packages, servers, stream types…) or
+unticks the logs and statistics in one go.</li>
 <li>Use the tabs on the right. The log at the bottom shows what is happening.</li>
 </ol>
 <p><b>Blue</b> buttons are the main actions; buttons outlined in <b>red</b> write to a server
@@ -175,7 +177,9 @@ The original template is not changed.</p>
 gets the <b>clean schema of the template</b> and only the <b>data</b> of the tables you choose.</p>
 <ol>
 <li>Load the dump (or a live database) in <i>Data source</i>.</li>
-<li>Tick the tables to copy in the list on the left (e.g. untick the logs).</li>
+<li>Tick the tables to copy in the list on the left. <b>Select → Tick the configuration
+tables</b> adds what the panel needs; <b>Select → Untick logs and statistics</b> leaves the
+logs out. The preview warns about configuration tables that would stay empty.</li>
 <li>Choose the template — the closest one is selected automatically — and type the name of
 the new database.</li>
 <li><b>Preview rebuild</b> lists, in the log, what happens to each table.</li>

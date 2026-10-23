@@ -16,7 +16,10 @@ gestionar</b>.</p>
 <li>En <b>Origen de los datos</b>, elige una base en vivo (MySQL/MariaDB) o un archivo de dump
 <code>.sql</code> y pulsa <b>Conectar / Cargar</b>.</li>
 <li>La app identifica el panel y lista sus tablas con categoría, filas y columnas. Marca las
-tablas con las que quieres trabajar (<b>Todos</b> / <b>Ninguno</b> / filtro).</li>
+tablas con las que quieres trabajar (<b>Todos</b> / <b>Ninguno</b> / filtro).
+<b>Seleccionar</b> marca de una vez las tablas de configuración que un panel necesita
+(ajustes, grupos, paquetes, servidores, tipos de stream…) o desmarca los logs y
+estadísticas.</li>
 <li>Usa las pestañas de la derecha. El registro de abajo muestra lo que está pasando.</li>
 </ol>
 <p>Los botones <b>azules</b> son las acciones principales; los botones con borde <b>rojo</b>
@@ -187,7 +190,10 @@ recibe el <b>esquema limpio de la plantilla</b> y solo los <b>datos</b> de las t
 elijas.</p>
 <ol>
 <li>Carga el dump (o una base en vivo) en <i>Origen de los datos</i>.</li>
-<li>Marca en la lista de la izquierda las tablas a copiar (por ejemplo, desmarca los logs).</li>
+<li>Marca en la lista de la izquierda las tablas a copiar. <b>Seleccionar → Marcar las
+tablas de configuración</b> añade lo que el panel necesita; <b>Seleccionar → Desmarcar logs
+y estadísticas</b> deja los logs fuera. La vista previa avisa de las tablas de configuración
+que quedarían vacías.</li>
 <li>Elige la plantilla — la más parecida se selecciona automáticamente — y escribe el nombre de
 la nueva base.</li>
 <li><b>Vista previa de la reconstrucción</b> muestra en el registro qué pasa con cada tabla.</li>

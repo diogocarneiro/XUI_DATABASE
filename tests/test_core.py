@@ -104,3 +104,18 @@ def test_insert_with_partial_or_reordered_column_list(tmp_path):
         ]
         page = src.fetch_page("servers", order_by="id")
         assert page.rows == [(1, "Main", None), (2, "LB", 8080), (3, "Old", 25461)]
+
+
+def test_config_and_log_tables():
+    from xdbtool.core.profiles import config_tables, log_tables
+
+    xui = ["settings", "users_groups", "Servers", "streams", "lines", "lines_logs",
+           "streams_stats", "user_activity_now", "watch_history", "users_credits_logs",
+           "streams_types", "catalog"]
+    assert config_tables(xui) == ["settings", "users_groups", "Servers", "streams_types"]
+    assert log_tables(xui) == ["lines_logs", "streams_stats", "user_activity_now",
+                               "watch_history", "users_credits_logs"]
+    xc = ["reg_users", "member_groups", "streaming_servers", "client_logs", "reg_userlog",
+          "login_flood", "packages", "admin_audit"]
+    assert config_tables(xc) == ["member_groups", "streaming_servers", "packages"]
+    assert log_tables(xc) == ["client_logs", "reg_userlog", "login_flood", "admin_audit"]

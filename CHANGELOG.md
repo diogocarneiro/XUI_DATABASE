@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-24
+### Added
+- **Quick table selection** — *Seleccionar* next to *Todos* / *Nenhum* in the table list:
+  *Marcar as tabelas de configuração* ticks what a panel needs to run (settings, groups,
+  packages, servers, stream types/arguments, transcoding profiles, access codes, output
+  formats/devices, cron jobs…, for XUI.one and the Xtream Codes v2 family); *Desmarcar
+  logs e estatísticas* unticks the log, statistics, audit and live-connection tables.
+- Rebuild preview: a warning lists the configuration tables that would stay empty (not
+  ticked, or empty in the source).
+- CLI `rebuild --with-config` (adds the configuration tables to `--tables`) and
+  `--no-logs`.
+- User guide: *Primeiros passos* and *Reconstruir uma base de dados a partir de um dump*
+  mention the quick selection.
+
 ## [0.10.0] - 2026-10-24
 ### Added
 - **Clean template** — *Templates / Nova BD → Limpar template…*: makes a clean copy of a

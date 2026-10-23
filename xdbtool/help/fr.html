@@ -16,7 +16,9 @@ ou qu'ils sont autorisés à gérer</b>.</p>
 <li>Dans <b>Source des données</b>, choisissez une base en direct (MySQL/MariaDB) ou un fichier
 de dump <code>.sql</code>, puis cliquez sur <b>Connecter / Charger</b>.</li>
 <li>L'application identifie le panneau et liste ses tables avec catégorie, lignes et colonnes.
-Cochez les tables à traiter (<b>Tous</b> / <b>Aucun</b> / filtre).</li>
+Cochez les tables à traiter (<b>Tous</b> / <b>Aucun</b> / filtre). <b>Sélectionner</b>
+coche d'un coup les tables de configuration dont un panneau a besoin (paramètres, groupes,
+offres, serveurs, types de flux…) ou décoche les journaux et statistiques.</li>
 <li>Utilisez les onglets de droite. Le journal en bas montre ce qui se passe.</li>
 </ol>
 <p>Les boutons <b>bleus</b> sont les actions principales ; les boutons au contour <b>rouge</b>
@@ -196,7 +198,10 @@ nouvelle base reçoit le <b>schéma propre du modèle</b> et seulement les <b>do
 choisies.</p>
 <ol>
 <li>Chargez le dump (ou une base en direct) dans <i>Source des données</i>.</li>
-<li>Cochez dans la liste de gauche les tables à copier (par exemple, décochez les journaux).</li>
+<li>Cochez dans la liste de gauche les tables à copier. <b>Sélectionner → Cocher les tables
+de configuration</b> ajoute ce dont le panneau a besoin ; <b>Sélectionner → Décocher les
+journaux et statistiques</b> laisse les journaux de côté. L'aperçu signale les tables de
+configuration qui resteraient vides.</li>
 <li>Choisissez le modèle — le plus proche est sélectionné automatiquement — et saisissez le nom
 de la nouvelle base.</li>
 <li><b>Aperçu de la reconstruction</b> indique dans le journal ce qui arrive à chaque table.</li>

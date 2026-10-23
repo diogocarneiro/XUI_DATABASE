@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -376,12 +377,23 @@ class MainWindow(QMainWindow):
         all_btn.clicked.connect(lambda: self._set_all_checks(True))
         none_btn = QPushButton(_("None"))
         none_btn.clicked.connect(lambda: self._set_all_checks(False))
+        pick_btn = QPushButton(_("Select"))
+        pick_menu = QMenu(pick_btn)
+        pick_menu.addAction(_("Tick the configuration tables"),
+                            lambda: self._tick(profiles.config_tables, True))
+        pick_menu.addAction(_("Untick logs and statistics"),
+                            lambda: self._tick(profiles.log_tables, False))
+        pick_btn.setMenu(pick_menu)
+        pick_btn.setToolTip(_("Configuration: settings, groups, packages, servers, stream "
+                              "types, transcoding profiles, access codes… — what a panel "
+                              "needs to run (tick them before a rebuild)."))
         view_btn = QPushButton(_("View data…"))
         view_btn.setToolTip(_("Browse the rows of the selected table (or double-click it)"))
         view_btn.clicked.connect(lambda: self._open_viewer(self.table_widget.currentRow()))
         top.addWidget(self.filter_edit, 1)
         top.addWidget(all_btn)
         top.addWidget(none_btn)
+        top.addWidget(pick_btn)
         top.addWidget(view_btn)
         v.addLayout(top)
 
@@ -1708,6 +1720,18 @@ class MainWindow(QMainWindow):
         for r in range(self.table_widget.rowCount()):
             if not self.table_widget.isRowHidden(r):
                 self.table_widget.item(r, 0).setCheckState(state)
+
+    def _tick(self, which, checked: bool) -> None:
+        """Tick (or untick) the tables ``which(names)`` picks; the others stay as they are."""
+        rows = {self.table_widget.item(r, 0).text(): r for r in range(self.table_widget.rowCount())}
+        picked = which(list(rows))
+        state = Qt.Checked if checked else Qt.Unchecked
+        for name in picked:
+            self.table_widget.item(rows[name], 0).setCheckState(state)
+        names = ", ".join(picked) or "-"
+        self._log(_("Ticked {count} table(s): {tables}", count=len(picked), tables=names)
+                  if checked else
+                  _("Unticked {count} table(s): {tables}", count=len(picked), tables=names))
 
     def _apply_filter(self, text: str) -> None:
         text = text.lower()
